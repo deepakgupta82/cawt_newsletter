@@ -1,0 +1,27 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local secrets - never commit
+.env
+.env.local
+.env.*.local
+
+# Local Azurite emulator state
+.azurite/
+
+# Local data written by the file-backed dev store
+.data/
+
+# Outbox: .eml files written by the local email sink
+.outbox/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
