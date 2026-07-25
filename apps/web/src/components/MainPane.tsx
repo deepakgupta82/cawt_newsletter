@@ -1,9 +1,22 @@
-import { useState } from 'react';
-import type { Blueprint, BlueprintLeafBlock, Edition, Newsletter, StoryBlock } from '../lib/types';
+import { useEffect, useState } from 'react';
+import type { Blueprint, BlueprintLeafBlock, Delivery, Edition, Newsletter, StoryBlock } from '../lib/types';
 import { api } from '../lib/api';
 import { Button, cx, EmptyHint, ProvenanceBadge, SectionTitle } from './ui';
+import { LinkedInEditor } from './LinkedInEditor';
 
-type Tab = 'preview' | 'structure' | 'checks';
+const LINKEDIN_LIMIT = 3000;
+
+type Tab = 'preview' | 'structure' | 'checks' | 'linkedin' | 'history' | 'sent';
+
+interface Social {
+  post: string;
+  diagramPrompt: string;
+  charCount: number;
+}
+
+function formatWhen(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
 
 interface Props {
   newsletter: Newsletter;
@@ -11,6 +24,7 @@ interface Props {
   onPreview: () => Promise<void>;
   previewing: boolean;
   lastCost: number | null;
+  onOpenEdition: (editionId: string) => void | Promise<void>;
 }
 
 function formatWindow(hours: number): string {
@@ -72,14 +86,82 @@ function LeafRow({ block, provenance }: { block: BlueprintLeafBlock; provenance:
   );
 }
 
-export function MainPane({ newsletter, edition, onPreview, previewing, lastCost }: Props) {
+export function MainPane({ newsletter, edition, onPreview, previewing, lastCost, onOpenEdition }: Props) {
   const [tab, setTab] = useState<Tab>('preview');
   const [testTo, setTestTo] = useState('reviewer@cawt.ai');
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [social, setSocial] = useState<Social | null>(null);
+  const [postDraft, setPostDraft] = useState('');
+  const [socialBusy, setSocialBusy] = useState(false);
+  const [socialError, setSocialError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<'post' | 'diagram' | null>(null);
+  const [history, setHistory] = useState<Edition[]>([]);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [deliveriesBusy, setDeliveriesBusy] = useState(false);
+  const [sentSearch, setSentSearch] = useState('');
+  const [sentRefresh, setSentRefresh] = useState(0);
+  const [viewing, setViewing] = useState<Delivery | null>(null);
 
   const stories = edition ? collectStories(edition) : [];
   const flagged = stories.filter((story) => story.warnings.length > 0);
   const blueprint = newsletter.blueprint;
+
+  // A fresh edition invalidates any post built from the previous one.
+  useEffect(() => {
+    setSocial(null);
+    setPostDraft('');
+    setSocialError(null);
+  }, [edition?.id]);
+
+  // Load the edition history when that tab opens, and after a new run.
+  useEffect(() => {
+    if (tab !== 'history') return;
+    setHistoryBusy(true);
+    api
+      .editions(newsletter.id)
+      .then(setHistory)
+      .catch(() => setHistory([]))
+      .finally(() => setHistoryBusy(false));
+  }, [tab, newsletter.id, edition?.id]);
+
+  // Load the sent emails when that tab opens, and after a test send.
+  useEffect(() => {
+    if (tab !== 'sent') return;
+    setViewing(null);
+    setDeliveriesBusy(true);
+    api
+      .deliveries(newsletter.id)
+      .then(setDeliveries)
+      .catch(() => setDeliveries([]))
+      .finally(() => setDeliveriesBusy(false));
+  }, [tab, newsletter.id, sentRefresh]);
+
+  const genSocial = async () => {
+    if (!edition) return;
+    setSocialBusy(true);
+    setSocialError(null);
+    try {
+      const result = await api.social(edition.id);
+      setSocial({ post: result.post, diagramPrompt: result.diagramPrompt, charCount: result.charCount });
+      setPostDraft(result.post);
+    } catch (error) {
+      setSocialError(error instanceof Error ? error.message : 'Could not generate the post');
+    } finally {
+      setSocialBusy(false);
+    }
+  };
+
+  const copy = async (text: string, which: 'post' | 'diagram') => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(which);
+      setTimeout(() => setCopied(null), 1500);
+    } catch {
+      setSocialError('Clipboard blocked by the browser. Select the text and copy manually.');
+    }
+  };
 
   const sendTest = async () => {
     if (!edition) return;
@@ -87,6 +169,7 @@ export function MainPane({ newsletter, edition, onPreview, previewing, lastCost 
     try {
       const result = await api.sendTest(edition.id, testTo);
       setTestResult(result.location ? `Written to ${result.location}` : `Sent via ${result.provider}`);
+      setSentRefresh((count) => count + 1);
     } catch (error) {
       setTestResult(error instanceof Error ? error.message : 'Send failed');
     }
@@ -96,7 +179,22 @@ export function MainPane({ newsletter, edition, onPreview, previewing, lastCost 
     ['preview', 'Preview'],
     ['structure', 'Structure'],
     ['checks', 'Checks'],
+    ['linkedin', 'LinkedIn'],
+    ['history', 'History'],
+    ['sent', 'Sent'],
   ];
+
+  const sentFiltered = deliveries.filter((item) => {
+    const query = sentSearch.trim().toLowerCase();
+    return !query || `${item.email} ${item.subject}`.toLowerCase().includes(query);
+  });
+
+  const historyFiltered = history
+    .filter((item) => {
+      const query = historySearch.trim().toLowerCase();
+      return !query || `${item.title} ${item.subject}`.toLowerCase().includes(query);
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-canvas">
@@ -283,6 +381,230 @@ export function MainPane({ newsletter, edition, onPreview, previewing, lastCost 
             )}
           </div>
         )}
+
+        {tab === 'linkedin' && (
+          <div className="space-y-4 px-6 py-6">
+            {!edition ? (
+              <EmptyHint>Run the newsletter once, then generate a LinkedIn post from that edition.</EmptyHint>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[14px] font-semibold text-stone-900">LinkedIn post</p>
+                    <p className="text-[12.5px] leading-relaxed text-stone-500">
+                      Built from this edition, so it repeats only fact-checked stories. Copy and paste it yourself;
+                      nothing is posted.
+                    </p>
+                  </div>
+                  <Button variant="primary" size="sm" onClick={() => void genSocial()} loading={socialBusy}>
+                    {social ? 'Regenerate' : 'Generate post'}
+                  </Button>
+                </div>
+
+                {socialError && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-800">
+                    {socialError}
+                  </div>
+                )}
+
+                {!social && !socialBusy && (
+                  <EmptyHint>Generate a post and a matching diagram prompt from the current edition.</EmptyHint>
+                )}
+
+                {social && (
+                  <>
+                    <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
+                      <div className="flex items-center gap-3 border-b border-stone-100 px-4 py-3">
+                        <img src="/cawt-logo.png" alt="CAWT" className="h-9 w-auto" />
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-semibold text-stone-900">CapAlpha WhiteTrust</p>
+                          <p className="text-[11.5px] text-stone-500">Private client advisory &middot; now</p>
+                        </div>
+                      </div>
+                      <LinkedInEditor value={postDraft} onChange={setPostDraft} limit={LINKEDIN_LIMIT} />
+                    </div>
+
+                    <div className="rounded-xl border border-stone-200 bg-white p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[13px] font-semibold text-stone-900">Diagram prompt</p>
+                          <p className="text-[12px] leading-relaxed text-stone-500">
+                            Paste into an image or diagram generator. Attach{' '}
+                            <code className="rounded bg-stone-100 px-1 py-0.5 text-[11px]">cawt-logo.png</code> so the
+                            mark is exact.
+                          </p>
+                        </div>
+                        <Button size="sm" onClick={() => void copy(social.diagramPrompt, 'diagram')}>
+                          {copied === 'diagram' ? 'Copied' : 'Copy prompt'}
+                        </Button>
+                      </div>
+                      <p className="mt-2.5 rounded-lg bg-stone-50 px-3 py-2.5 text-[12.5px] leading-relaxed text-stone-700">
+                        {social.diagramPrompt}
+                      </p>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {tab === 'history' && (
+          <div className="mx-auto max-w-3xl space-y-4 px-6 py-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[14px] font-semibold text-stone-900">Edition history</p>
+                <p className="text-[12.5px] text-stone-500">
+                  Every edition generated for this newsletter, newest first. Open one to read exactly what went out.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-stone-400">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="M21 21l-4-4" />
+                </svg>
+                <input
+                  value={historySearch}
+                  onChange={(event) => setHistorySearch(event.target.value)}
+                  placeholder="Search editions"
+                  className="w-40 bg-transparent text-[12.5px] text-stone-800 outline-none placeholder:text-stone-400"
+                />
+              </div>
+            </div>
+
+            {historyBusy ? (
+              <EmptyHint>Loading history…</EmptyHint>
+            ) : historyFiltered.length === 0 ? (
+              <EmptyHint>
+                {history.length === 0
+                  ? 'No editions yet. Run the newsletter against live news to create the first one.'
+                  : 'No edition matches that search.'}
+              </EmptyHint>
+            ) : (
+              <div className="space-y-2">
+                {historyFiltered.map((item) => {
+                  const count = collectStories(item).length;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setTab('preview');
+                        void onOpenEdition(item.id);
+                      }}
+                      className={cx(
+                        'flex w-full items-center justify-between gap-4 rounded-xl border bg-white px-4 py-3 text-left transition-colors hover:border-stone-300',
+                        edition?.id === item.id ? 'border-teal-300 ring-1 ring-teal-200' : 'border-stone-200',
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-[13.5px] font-medium text-stone-900">{item.title}</p>
+                        <p className="truncate text-[12px] text-stone-500">{item.subject}</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-4 text-right">
+                        <span className="text-[11.5px] text-stone-500">
+                          {count} {count === 1 ? 'story' : 'stories'} &middot; v{item.blueprintVersion}
+                        </span>
+                        <span className="w-36 text-[11.5px] text-stone-400">{formatWhen(item.createdAt)}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <p className="pt-1 text-[11.5px] leading-relaxed text-stone-400">
+              These are editions generated for review. To see what actually reached an inbox, use the Sent tab.
+            </p>
+          </div>
+        )}
+
+        {tab === 'sent' &&
+          (viewing ? (
+            <div className="flex h-full flex-col">
+              <div className="flex flex-wrap items-center gap-3 border-b border-stone-200 bg-white px-5 py-2.5">
+                <Button size="sm" onClick={() => setViewing(null)}>
+                  &larr; Back to sent
+                </Button>
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-medium text-stone-900">{viewing.subject}</p>
+                  <p className="truncate text-[11.5px] text-stone-500">
+                    To {viewing.email} &middot; {formatWhen(viewing.timestamp)} &middot; via {viewing.provider ?? 'email'}
+                  </p>
+                </div>
+              </div>
+              <iframe
+                key={viewing.id}
+                title="Sent email"
+                src={api.deliveryHtmlUrl(viewing.id)}
+                sandbox=""
+                className="min-h-0 w-full flex-1 border-0 bg-stone-100"
+              />
+            </div>
+          ) : (
+            <div className="mx-auto max-w-3xl space-y-4 px-6 py-6">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[14px] font-semibold text-stone-900">Sent emails</p>
+                  <p className="text-[12.5px] text-stone-500">
+                    Every email actually sent for this newsletter. Search by recipient or subject, then open one to read
+                    exactly what they received.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-stone-400">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="M21 21l-4-4" />
+                  </svg>
+                  <input
+                    value={sentSearch}
+                    onChange={(event) => setSentSearch(event.target.value)}
+                    placeholder="Search recipient or subject"
+                    className="w-52 bg-transparent text-[12.5px] text-stone-800 outline-none placeholder:text-stone-400"
+                  />
+                </div>
+              </div>
+
+              {deliveriesBusy ? (
+                <EmptyHint>Loading sent emails…</EmptyHint>
+              ) : sentFiltered.length === 0 ? (
+                <EmptyHint>
+                  {deliveries.length === 0
+                    ? 'No emails sent yet. Send a test copy from the Preview tab and it will appear here.'
+                    : 'No sent email matches that search.'}
+                </EmptyHint>
+              ) : (
+                <div className="space-y-2">
+                  {sentFiltered.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setViewing(item)}
+                      className="flex w-full items-center justify-between gap-4 rounded-xl border border-stone-200 bg-white px-4 py-3 text-left transition-colors hover:border-stone-300"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-[13.5px] font-medium text-stone-900">{item.email}</span>
+                          <span
+                            className={cx(
+                              'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                              item.kind === 'live'
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : 'bg-stone-100 text-stone-500',
+                            )}
+                          >
+                            {item.kind}
+                          </span>
+                        </div>
+                        <p className="truncate text-[12px] text-stone-500">{item.subject}</p>
+                      </div>
+                      <span className="w-36 shrink-0 text-right text-[11.5px] text-stone-400">
+                        {formatWhen(item.timestamp)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
       </div>
     </div>
   );

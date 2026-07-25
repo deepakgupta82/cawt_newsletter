@@ -130,6 +130,24 @@ export interface Edition {
   createdAt: string;
 }
 
+export interface Delivery {
+  id: string;
+  newsletterId: string;
+  editionId: string;
+  recipientId: string;
+  email: string;
+  toName?: string;
+  subject: string;
+  kind: 'test' | 'live';
+  status: 'queued' | 'sent' | 'failed';
+  provider?: string;
+  providerMessageId?: string;
+  snapshotPath?: string;
+  failureReason?: string;
+  retryCount: number;
+  timestamp: string;
+}
+
 export interface ConversationMessage {
   id: string;
   newsletterId: string;

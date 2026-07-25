@@ -202,6 +202,114 @@ function sentenceCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+const TOPIC_HASHTAGS: Array<[string, string]> = [
+  ['succession', '#Succession'],
+  ['private wealth', '#PrivateWealth'],
+  ['family office', '#FamilyOffice'],
+  ['estate planning', '#EstatePlanning'],
+  ['trusts', '#Trusts'],
+  ['regulation', '#WealthRegulation'],
+  ['tax', '#Tax'],
+  ['litigation', '#EstateLitigation'],
+];
+
+/** First sentence, splitting only on real sentence ends (not decimals like $1.6). */
+function firstSentence(text: string): string {
+  const parts = text.trim().split(/(?<=[.!?])\s+(?=[A-Z])/);
+  return (parts[0] ?? text).trim();
+}
+
+/**
+ * Builds a LinkedIn post and a diagram prompt from the edition digest that
+ * social.ts hands over. Deterministic, so the feature demonstrates offline and
+ * a real model is one environment variable away.
+ */
+function buildSocial(digest: string): { post: string; diagramPrompt: string } {
+  const title = (/^TITLE:\s*(.+)$/m.exec(digest)?.[1] ?? 'CAWT briefing').replace(/\s*-?\s*\{\{date\}\}\s*$/, '').trim();
+  const bottomLine = /^BOTTOM_LINE:\s*([\s\S]+?)$/m.exec(digest)?.[1]?.trim() ?? '';
+  const stories = [...digest.matchAll(/^STORY:\s*(?<region>[^:]+?)\s*::\s*(?<headline>.+)$/gm)].map((match) => ({
+    region: match.groups?.['region']?.trim() ?? 'General',
+    headline: match.groups?.['headline']?.trim() ?? '',
+  }));
+
+  const regions: string[] = [];
+  for (const story of stories) if (!regions.includes(story.region)) regions.push(story.region);
+
+  const regionPhrase =
+    regions.length === 0
+      ? ''
+      : ` across ${regions.slice(0, -1).join(', ')}${regions.length > 1 ? ' and ' : ''}${regions.at(-1)}`;
+
+  const hook =
+    stories.length > 0
+      ? `${stories.length} shifts${regionPhrase} that private client advisers should not miss this week.`
+      : 'What moved in private wealth and succession this week.';
+
+  // Round-robin across regions so the post reads as a spread, not five items
+  // from whichever section came first.
+  const queues = new Map<string, string[]>();
+  for (const story of stories) {
+    const queue = queues.get(story.region) ?? [];
+    queue.push(story.headline);
+    queues.set(story.region, queue);
+  }
+  const picked: Array<{ region: string; headline: string }> = [];
+  for (let added = true; added && picked.length < 5; ) {
+    added = false;
+    for (const region of regions) {
+      const queue = queues.get(region);
+      if (queue && queue.length > 0) {
+        picked.push({ region, headline: queue.shift()! });
+        added = true;
+        if (picked.length >= 5) break;
+      }
+    }
+  }
+  const bullets = picked
+    .map((story) => {
+      const headline = story.headline.length > 96 ? `${story.headline.slice(0, 93).trimEnd()}...` : story.headline;
+      return `• ${story.region}: ${headline}`;
+    })
+    .join('\n');
+
+  const takeaway = bottomLine
+    ? firstSentence(bottomLine)
+    : 'The common thread: families are being pushed to formalise control and document intent rather than rely on informal understanding.';
+
+  const topics = detectTopics(digest);
+  const tags: string[] = [];
+  for (const [topic, tag] of TOPIC_HASHTAGS) {
+    if (topics.includes(topic) && !tags.includes(tag)) tags.push(tag);
+  }
+  if (tags.length === 0) tags.push('#PrivateWealth', '#Succession');
+  const hashtags = tags.slice(0, 3).join(' ');
+
+  const post = [
+    hook,
+    '',
+    bullets,
+    '',
+    takeaway,
+    '',
+    'Full briefing goes to CapAlpha WhiteTrust subscribers. Follow CAWT or get in touch to receive it.',
+    '',
+    hashtags,
+  ]
+    .join('\n')
+    .trim();
+
+  const panels = regions.length > 0 ? regions.join(', ') : 'the key themes';
+  const diagramPrompt =
+    `Create a clean, professional LinkedIn infographic in a square 1:1 format titled "${title}". ` +
+    `Draw ${regions.length > 0 ? regions.length : 3} labelled panels, one for each of: ${panels}, and under each panel ` +
+    `list its one or two headline developments in short phrases. ` +
+    `Style: deep navy (#0B1220) background accents with a teal (#0E7C6B) highlight, generous white space, flat minimal ` +
+    `shapes, thin connector lines, a clear modern sans-serif. Place the CAWT logo (a navy tree emblem above the "CAWT" ` +
+    `wordmark) small in the top-left corner. Board-room clean. No photorealism, no stock photography, no faces, no clip-art.`;
+
+  return { post, diagramPrompt };
+}
+
 /** Trims text to roughly the requested word count, ending on a sentence. */
 function toWordBudget(text: string, words: number): string {
   const sentences = text.split(/(?<=[.!?])\s+/);
@@ -309,6 +417,9 @@ export class MockLlmProvider implements LlmProvider {
           warnings: [],
         };
       }
+
+      case 'social_post':
+        return buildSocial(request.user);
 
       case 'fact_check':
         return { warnings: [] };

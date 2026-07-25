@@ -3,12 +3,13 @@ import { BlobServiceClient, type ContainerClient } from '@azure/storage-blob';
 import type {
   Brand,
   ConversationMessage,
+  Delivery,
   Edition,
   Newsletter,
   Recipient,
   RecipientGroup,
 } from '@cawt/domain';
-import type { BlobStore, ConversationStore, EditionStore, Repository, Stores } from './types.js';
+import type { BlobStore, ConversationStore, DeliveryStore, EditionStore, Repository, Stores } from './types.js';
 
 /**
  * Azure Table + Blob storage.
@@ -95,6 +96,15 @@ class TableEditionStore extends TableRepository<Edition> implements EditionStore
     return editions
       .filter((edition) => edition.newsletterId === newsletterId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+}
+
+class TableDeliveryStore extends TableRepository<Delivery> implements DeliveryStore {
+  async listByNewsletter(newsletterId: string): Promise<Delivery[]> {
+    const deliveries = await this.list();
+    return deliveries
+      .filter((delivery) => delivery.newsletterId === newsletterId)
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   }
 }
 
@@ -192,6 +202,7 @@ export function createAzureStores(options: AzureStoreOptions): Stores {
   return {
     newsletters: new TableRepository<Newsletter>(table('Newsletters')),
     editions: new TableEditionStore(table('Editions')),
+    deliveries: new TableDeliveryStore(table('Deliveries')),
     conversations: new TableConversationStore(table('Conversations')),
     brands: new TableRepository<Brand>(table('Brands')),
     recipients: new TableRepository<Recipient>(table('Recipients')),

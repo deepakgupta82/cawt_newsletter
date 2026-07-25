@@ -250,11 +250,20 @@ export type Brand = z.infer<typeof brandSchema>;
 
 export const deliverySchema = z.object({
   id: z.string().min(1),
+  newsletterId: z.string().min(1),
   editionId: z.string().min(1),
   recipientId: z.string().min(1),
   email: z.string().email(),
+  toName: z.string().optional(),
+  /** The subject line the recipient actually saw. */
+  subject: z.string().default(''),
+  /** A one-off test send versus a real edition send. */
+  kind: z.enum(['test', 'live']).default('test'),
   status: z.enum(['queued', 'sent', 'failed']).default('queued'),
+  provider: z.string().optional(),
   providerMessageId: z.string().optional(),
+  /** Blob path of the exact HTML that was sent, so it can be read back later. */
+  snapshotPath: z.string().optional(),
   failureReason: z.string().optional(),
   retryCount: z.number().int().default(0),
   timestamp: z.string(),

@@ -1,6 +1,7 @@
 import type {
   Brand,
   ConversationMessage,
+  Delivery,
   Edition,
   Newsletter,
   Recipient,
@@ -34,6 +35,10 @@ export interface EditionStore extends Repository<Edition> {
   listByNewsletter(newsletterId: string): Promise<Edition[]>;
 }
 
+export interface DeliveryStore extends Repository<Delivery> {
+  listByNewsletter(newsletterId: string): Promise<Delivery[]>;
+}
+
 /** Large or binary payloads: uploaded samples, rendered HTML, logos, images. */
 export interface BlobStore {
   put(path: string, content: string | Buffer, contentType?: string): Promise<string>;
@@ -45,6 +50,7 @@ export interface BlobStore {
 export interface Stores {
   newsletters: Repository<Newsletter>;
   editions: EditionStore;
+  deliveries: DeliveryStore;
   conversations: ConversationStore;
   brands: Repository<Brand>;
   recipients: Repository<Recipient>;

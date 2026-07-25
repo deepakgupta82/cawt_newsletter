@@ -1,8 +1,12 @@
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import { z } from 'zod';
 import {
   blueprintSchema,
+  deliverySchema,
   editionSchema,
   newId,
   newsletterSchema,
@@ -11,7 +15,7 @@ import {
   type ConversationMessage,
   type Newsletter,
 } from '@cawt/domain';
-import { design, generateEdition, totalCost } from '@cawt/core';
+import { composeSocial, design, generateEdition, totalCost } from '@cawt/core';
 import { renderEditionHtml, renderEditionText } from '@cawt/render';
 import { createContext, DEFAULT_BRAND, loadEnv, type AppContext } from './context.js';
 import { normaliseSample } from './sample.js';
@@ -325,6 +329,27 @@ app.put(
   }),
 );
 
+/**
+ * A copy-paste LinkedIn post plus a diagram prompt, both built from the
+ * edition. Grounded on already-fact-checked content, so nothing new is invented
+ * at the social step. Posting is out of scope; this only produces the text.
+ */
+app.post(
+  '/api/editions/:id/social',
+  route(async (req, res) => {
+    const edition = await ctx.stores.editions.get(param(req, 'id'));
+    if (!edition) return res.status(404).json({ error: 'Edition not found' });
+
+    const social = await composeSocial(ctx.llm, { edition });
+    return res.json({
+      post: social.post,
+      diagramPrompt: social.diagramPrompt,
+      charCount: social.charCount,
+      cost: totalCost(social.usage),
+    });
+  }),
+);
+
 app.post(
   '/api/editions/:id/send-test',
   route(async (req, res) => {
@@ -333,20 +358,78 @@ app.post(
     if (!edition) return res.status(404).json({ error: 'Edition not found' });
 
     const brand = (await ctx.stores.brands.get('default')) ?? DEFAULT_BRAND;
+    const subject = `[TEST] ${edition.subject}`;
+    const html = renderEditionHtml(edition, { brand, unsubscribeUrl: 'https://example.invalid/unsubscribe' });
     const result = await ctx.email.send({
       to,
       fromAddress: brand.contactAddress,
       fromName: brand.name,
       replyTo: brand.contactAddress,
-      subject: `[TEST] ${edition.subject}`,
-      html: renderEditionHtml(edition, { brand, unsubscribeUrl: 'https://example.invalid/unsubscribe' }),
+      subject,
+      html,
       text: renderEditionText(edition, { brand, unsubscribeUrl: 'https://example.invalid/unsubscribe' }),
       headers: { 'List-Unsubscribe': `<mailto:${brand.contactAddress}?subject=unsubscribe>` },
     });
 
+    // Record what actually went out, and keep the exact HTML so it can be read
+    // back later from the Sent view.
+    const deliveryId = newId('dlv');
+    const snapshotPath = `sent/${deliveryId}.html`;
+    await ctx.stores.blobs.put(snapshotPath, html, 'text/html');
+    await ctx.stores.deliveries.save(
+      deliverySchema.parse({
+        id: deliveryId,
+        newsletterId: edition.newsletterId,
+        editionId: edition.id,
+        recipientId: 'test',
+        email: to,
+        subject,
+        kind: 'test',
+        status: 'sent',
+        provider: ctx.email.name,
+        providerMessageId: result.messageId,
+        snapshotPath,
+        timestamp: nowIso(),
+      }),
+    );
+
     return res.json({ ...result, provider: ctx.email.name });
   }),
 );
+
+app.get(
+  '/api/newsletters/:id/deliveries',
+  route(async (req, res) => {
+    res.json(await ctx.stores.deliveries.listByNewsletter(param(req, 'id')));
+  }),
+);
+
+/** The exact HTML that was sent, for the Sent view's reader. */
+app.get(
+  '/api/deliveries/:id/html',
+  route(async (req, res) => {
+    const delivery = await ctx.stores.deliveries.get(param(req, 'id'));
+    if (!delivery?.snapshotPath) return res.status(404).send('Sent email not found');
+    const html = await ctx.stores.blobs.getText(delivery.snapshotPath);
+    if (!html) return res.status(404).send('Sent email content not found');
+    res.type('html').send(html);
+    return undefined;
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Static SPA (production: API and UI served from one origin)
+// ---------------------------------------------------------------------------
+
+const webDist = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
+if (existsSync(webDist)) {
+  app.use(express.static(webDist));
+  // Client-side routes fall back to index.html; the API namespace is left alone.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+    res.sendFile(join(webDist, 'index.html'));
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -363,7 +446,7 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(status).json({ error: message });
 });
 
-const port = Number(process.env['API_PORT'] ?? 7071);
+const port = Number(process.env['PORT'] ?? process.env['API_PORT'] ?? 7071);
 app.listen(port, () => {
   console.log(`\n  CAWT newsletter API  http://localhost:${port}`);
   console.log(

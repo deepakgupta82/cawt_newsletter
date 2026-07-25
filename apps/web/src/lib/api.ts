@@ -1,6 +1,7 @@
 import type {
   AppConfig,
   ConversationMessage,
+  Delivery,
   Edition,
   Newsletter,
   NewsletterSummary,
@@ -46,11 +47,25 @@ export const api = {
 
   conversation: (id: string) => request<ConversationMessage[]>(`/api/newsletters/${id}/conversation`),
 
+  editions: (id: string) => request<Edition[]>(`/api/newsletters/${id}/editions`),
+
+  getEdition: (editionId: string) => request<Edition>(`/api/editions/${editionId}`),
+
   sendTest: (editionId: string, to: string) =>
     request<{ messageId: string; location?: string; provider: string }>(`/api/editions/${editionId}/send-test`, {
       method: 'POST',
       body: JSON.stringify({ to }),
     }),
 
+  social: (editionId: string) =>
+    request<{ post: string; diagramPrompt: string; charCount: number; cost: number }>(
+      `/api/editions/${editionId}/social`,
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
+
+  deliveries: (id: string) => request<Delivery[]>(`/api/newsletters/${id}/deliveries`),
+
   editionHtmlUrl: (editionId: string) => `/api/editions/${editionId}/html?preview=1`,
+
+  deliveryHtmlUrl: (deliveryId: string) => `/api/deliveries/${deliveryId}/html`,
 };

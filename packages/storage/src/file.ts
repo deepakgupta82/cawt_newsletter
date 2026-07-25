@@ -3,12 +3,13 @@ import { dirname, join, resolve, sep } from 'node:path';
 import type {
   Brand,
   ConversationMessage,
+  Delivery,
   Edition,
   Newsletter,
   Recipient,
   RecipientGroup,
 } from '@cawt/domain';
-import type { BlobStore, ConversationStore, EditionStore, Repository, Stores } from './types.js';
+import type { BlobStore, ConversationStore, DeliveryStore, EditionStore, Repository, Stores } from './types.js';
 
 /**
  * File-backed store for local development. One JSON document per collection
@@ -66,6 +67,15 @@ class FileEditionStore extends FileRepository<Edition> implements EditionStore {
     return editions
       .filter((edition) => edition.newsletterId === newsletterId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+}
+
+class FileDeliveryStore extends FileRepository<Delivery> implements DeliveryStore {
+  async listByNewsletter(newsletterId: string): Promise<Delivery[]> {
+    const deliveries = await this.list();
+    return deliveries
+      .filter((delivery) => delivery.newsletterId === newsletterId)
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   }
 }
 
@@ -136,6 +146,7 @@ export function createFileStores(root = '.data'): Stores {
   return {
     newsletters: new FileRepository<Newsletter>(join(base, 'newsletters.json')),
     editions: new FileEditionStore(join(base, 'editions.json')),
+    deliveries: new FileDeliveryStore(join(base, 'deliveries.json')),
     conversations: new FileConversationStore(join(base, 'conversations.json')),
     brands: new FileRepository<Brand>(join(base, 'brands.json')),
     recipients: new FileRepository<Recipient>(join(base, 'recipients.json')),
