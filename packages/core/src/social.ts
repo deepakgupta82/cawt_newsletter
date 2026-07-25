@@ -78,7 +78,9 @@ export async function composeSocial(
     operation: 'social_post',
     system: SYSTEM_PROMPTS.socialPost,
     user: digest,
-    maxTokens: 900,
+    // Generous headroom: gpt-5 reasoning tokens count against this budget, and
+    // starving it yields an empty completion.
+    maxTokens: 2500,
     schema: {
       name: 'social_post',
       jsonSchema: z.toJSONSchema(socialSchema, { io: 'input', unrepresentable: 'any' }) as Record<string, unknown>,

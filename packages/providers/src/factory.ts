@@ -36,14 +36,15 @@ export function createLlmProvider(env: NodeJS.ProcessEnv = process.env): LlmProv
 
     case 'azure-openai': {
       const deployments: Record<ModelTier, string> = {
-        bulk: env['MODEL_BULK'] ?? 'gpt-4.1-mini',
-        writer: env['MODEL_WRITER'] ?? 'gpt-4.1',
+        bulk: env['MODEL_BULK'] ?? 'gpt-5-mini',
+        writer: env['MODEL_WRITER'] ?? 'gpt-5.1',
       };
       return new AzureOpenAiProvider({
         endpoint: env['AZURE_AI_ENDPOINT'] ?? '',
-        apiVersion: env['AZURE_AI_API_VERSION'] ?? '2024-10-21',
+        apiVersion: env['AZURE_AI_API_VERSION'] ?? '2025-04-01-preview',
         deployments,
         apiKey: env['AZURE_AI_API_KEY'] || undefined,
+        ...(env['AZURE_REASONING_EFFORT'] ? { reasoningEffort: env['AZURE_REASONING_EFFORT'] } : {}),
       });
     }
 

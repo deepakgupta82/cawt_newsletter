@@ -11,6 +11,13 @@ export interface AzureOpenAiOptions {
   /** Managed-identity token provider. Preferred in Azure: no secret to rotate. */
   getToken?: () => Promise<string>;
   maxRetries?: number;
+  /**
+   * gpt-5 family reasoning budget ("minimal" | "low" | "medium" | "high").
+   * These tasks are grounded summary and short prose, not hard reasoning, so a
+   * low setting keeps latency and token spend down and stops reasoning tokens
+   * from starving the actual output. Omit for non-reasoning deployments.
+   */
+  reasoningEffort?: string;
 }
 
 interface ChatResponse {
@@ -120,6 +127,7 @@ export class AzureOpenAiProvider implements LlmProvider {
           { role: 'user', content: request.user },
         ],
         max_completion_tokens: request.maxTokens ?? 4000,
+        ...(this.options.reasoningEffort ? { reasoning_effort: this.options.reasoningEffort } : {}),
         ...(responseFormat ? { response_format: responseFormat } : {}),
       }),
       signal: AbortSignal.timeout(120_000),
