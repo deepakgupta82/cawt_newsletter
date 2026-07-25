@@ -3,10 +3,11 @@ import type { Blueprint, BlueprintLeafBlock, Delivery, Edition, Newsletter, Stor
 import { api } from '../lib/api';
 import { Button, cx, EmptyHint, ProvenanceBadge, SectionTitle } from './ui';
 import { LinkedInEditor } from './LinkedInEditor';
+import { AudiencePanel } from './AudiencePanel';
 
 const LINKEDIN_LIMIT = 3000;
 
-type Tab = 'preview' | 'structure' | 'checks' | 'linkedin' | 'history' | 'sent';
+type Tab = 'preview' | 'structure' | 'checks' | 'audience' | 'linkedin' | 'history' | 'sent';
 
 interface Social {
   post: string;
@@ -25,6 +26,7 @@ interface Props {
   previewing: boolean;
   lastCost: number | null;
   onOpenEdition: (editionId: string) => void | Promise<void>;
+  onNewsletterChange: (next: Newsletter) => void;
 }
 
 function formatWindow(hours: number): string {
@@ -86,7 +88,15 @@ function LeafRow({ block, provenance }: { block: BlueprintLeafBlock; provenance:
   );
 }
 
-export function MainPane({ newsletter, edition, onPreview, previewing, lastCost, onOpenEdition }: Props) {
+export function MainPane({
+  newsletter,
+  edition,
+  onPreview,
+  previewing,
+  lastCost,
+  onOpenEdition,
+  onNewsletterChange,
+}: Props) {
   const [tab, setTab] = useState<Tab>('preview');
   const [testTo, setTestTo] = useState('reviewer@cawt.ai');
   const [testResult, setTestResult] = useState<string | null>(null);
@@ -179,6 +189,7 @@ export function MainPane({ newsletter, edition, onPreview, previewing, lastCost,
     ['preview', 'Preview'],
     ['structure', 'Structure'],
     ['checks', 'Checks'],
+    ['audience', 'Audience'],
     ['linkedin', 'LinkedIn'],
     ['history', 'History'],
     ['sent', 'Sent'],
@@ -380,6 +391,10 @@ export function MainPane({ newsletter, edition, onPreview, previewing, lastCost,
               </>
             )}
           </div>
+        )}
+
+        {tab === 'audience' && (
+          <AudiencePanel newsletter={newsletter} onNewsletterChange={onNewsletterChange} />
         )}
 
         {tab === 'linkedin' && (

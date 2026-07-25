@@ -11,9 +11,12 @@ import {
   newId,
   newsletterSchema,
   nowIso,
+  recipientGroupSchema,
+  recipientSchema,
   scheduleSchema,
   type ConversationMessage,
   type Newsletter,
+  type Recipient,
 } from '@cawt/domain';
 import { composeSocial, design, generateEdition, totalCost } from '@cawt/core';
 import { renderEditionHtml, renderEditionText } from '@cawt/render';
@@ -284,6 +287,96 @@ app.post(
 
     await ctx.stores.editions.save(edition);
     res.json({ edition, cost: totalCost(edition.usage) });
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Recipients (per newsletter, held in a recipient group)
+// ---------------------------------------------------------------------------
+
+function parseEmails(raw: string): string[] {
+  const seen = new Set<string>();
+  for (const token of raw.split(/[\s,;]+/)) {
+    const email = token.trim().toLowerCase();
+    if (email && z.string().email().safeParse(email).success) seen.add(email);
+  }
+  return [...seen];
+}
+
+async function recipientsFor(newsletter: Newsletter): Promise<Recipient[]> {
+  if (!newsletter.recipientGroupId) return [];
+  const group = await ctx.stores.recipientGroups.get(newsletter.recipientGroupId);
+  if (!group) return [];
+  const found = await Promise.all(group.recipientIds.map((id) => ctx.stores.recipients.get(id)));
+  return found.filter((recipient): recipient is Recipient => Boolean(recipient));
+}
+
+app.get(
+  '/api/newsletters/:id/recipients',
+  route(async (req, res) => {
+    res.json(await recipientsFor(await requireNewsletter(param(req, 'id'))));
+  }),
+);
+
+app.post(
+  '/api/newsletters/:id/recipients',
+  route(async (req, res) => {
+    const newsletter = await requireNewsletter(param(req, 'id'));
+    const { emails } = z.object({ emails: z.string().max(50_000) }).parse(req.body);
+    const parsed = parseEmails(emails);
+    if (parsed.length === 0) throw Object.assign(new Error('No valid email addresses found.'), { status: 400 });
+
+    const group =
+      (newsletter.recipientGroupId ? await ctx.stores.recipientGroups.get(newsletter.recipientGroupId) : undefined) ??
+      recipientGroupSchema.parse({
+        id: newId('grp'),
+        name: `${newsletter.name} recipients`,
+        recipientIds: [],
+        createdAt: nowIso(),
+      });
+
+    const existing = await recipientsFor(newsletter);
+    const known = new Set(existing.map((recipient) => recipient.email));
+    const added: string[] = [];
+    for (const email of parsed) {
+      if (known.has(email)) continue;
+      const recipient = recipientSchema.parse({
+        id: newId('rcp'),
+        email,
+        status: 'active',
+        consentSource: 'manual',
+        consentAt: nowIso(),
+        createdAt: nowIso(),
+      });
+      await ctx.stores.recipients.save(recipient);
+      group.recipientIds.push(recipient.id);
+      added.push(email);
+    }
+    await ctx.stores.recipientGroups.save(group);
+
+    let saved = newsletter;
+    if (newsletter.recipientGroupId !== group.id) {
+      saved = newsletterSchema.parse({ ...newsletter, recipientGroupId: group.id, updatedAt: nowIso() });
+      await ctx.stores.newsletters.save(saved);
+    }
+    res.status(201).json({ added, recipients: await recipientsFor(saved) });
+  }),
+);
+
+app.delete(
+  '/api/newsletters/:id/recipients/:rid',
+  route(async (req, res) => {
+    const newsletter = await requireNewsletter(param(req, 'id'));
+    const rid = param(req, 'rid');
+    if (newsletter.recipientGroupId) {
+      const group = await ctx.stores.recipientGroups.get(newsletter.recipientGroupId);
+      if (group) {
+        group.recipientIds = group.recipientIds.filter((id) => id !== rid);
+        await ctx.stores.recipientGroups.save(group);
+      }
+    }
+    await ctx.stores.recipients.delete(rid);
+    res.json(await recipientsFor(newsletter));
   }),
 );
 

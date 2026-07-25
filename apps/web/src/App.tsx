@@ -451,6 +451,10 @@ export default function App() {
                   previewing={previewing}
                   lastCost={lastCost}
                   onOpenEdition={openEdition}
+                  onNewsletterChange={(next) => {
+                    setActive(next);
+                    void api.listNewsletters().then(setList);
+                  }}
                 />
               </div>
             </div>

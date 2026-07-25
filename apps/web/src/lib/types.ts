@@ -130,6 +130,16 @@ export interface Edition {
   createdAt: string;
 }
 
+export interface Recipient {
+  id: string;
+  email: string;
+  displayName?: string;
+  status: 'active' | 'unsubscribed' | 'bounced';
+  consentSource: string;
+  consentAt?: string;
+  createdAt: string;
+}
+
 export interface Delivery {
   id: string;
   newsletterId: string;

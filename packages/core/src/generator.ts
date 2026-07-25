@@ -222,16 +222,27 @@ export async function generateEdition(options: GenerateOptions): Promise<Edition
   const contentByStory = new Map<string, string>();
 
   // 1. Execute every selection rule in the blueprint.
+  //
+  // Groups run in order because a later group's selection dedups against
+  // stories an earlier one already used (Fresh vs Ongoing). Within a group the
+  // per-article writes are independent, so they run concurrently - that turns a
+  // long chain of model calls into a few short bursts, which keeps a live
+  // preview under the platform's request timeout.
   for (const group of collectStoryGroups(options.blueprint.blocks)) {
     const articles = await selectArticles(group, options, used, usage);
-    const stories: StoryBlock[] = [];
+    // Reserve the ids before writing so the next group dedups correctly.
+    for (const article of articles) used.add(article.id);
 
-    for (const article of articles) {
-      const story = await writeStory(article, group, options.blueprint, options, usage);
+    const written = await Promise.all(
+      articles.map((article) => writeStory(article, group, options.blueprint, options, usage)),
+    );
+
+    const stories: StoryBlock[] = [];
+    for (let i = 0; i < written.length; i++) {
+      const story = written[i];
       if (!story) continue;
-      used.add(article.id);
       stories.push(story);
-      contentByStory.set(story.id, (await options.resolveContent(article)) ?? article.snippet);
+      contentByStory.set(story.id, (await options.resolveContent(articles[i]!)) ?? articles[i]!.snippet);
     }
 
     outcomes.set(group.id, { group, stories });
