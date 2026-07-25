@@ -99,9 +99,12 @@ You score candidate articles for how well they fit a story_group's stated intent
 
 Return a score from 0 to 1 for each article, and one short sentence of justification.
 
-Score at or near zero: job advertisements, sponsored content, webinar and event promotion, press releases with no
-news value, listicles, and anything off-topic for the stated intent regardless of how recent it is.
-Score highly only when the article's substance matches the intent, not merely its keywords.
+Score at or near zero: job advertisements, sponsored content, webinar and event promotion, press releases and
+company self-announcements ("X launches...", "X offers..."), thought-leadership and marketing explainers from law
+or advisory firms, listicles, articles that merely summarise or round up other articles, and anything off-topic for
+the stated intent regardless of how recent it is.
+Score highly only for genuine reporting whose substance matches the intent, not merely its keywords. When in doubt
+between a news report and a promotional or explainer piece, score it low.
 
 Judge from the title and snippet you are given. Do not speculate about content you cannot see.
 

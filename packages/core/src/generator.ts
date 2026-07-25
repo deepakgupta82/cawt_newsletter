@@ -113,8 +113,10 @@ async function selectArticles(
     tier: 'bulk',
     operation: 'score_articles',
     system: SYSTEM_PROMPTS.scoreArticles,
+    // Scoring only needs the gist; the full article text is reserved for the
+    // summary step. Trimming here keeps the scoring call cheap on real content.
     user: `INTENT: ${group.intent}\n\nCANDIDATES:\n${untrusted(
-      candidates.map((article) => `[${article.id}] ${article.title} - ${article.snippet}`).join('\n'),
+      candidates.map((article) => `[${article.id}] ${article.title} - ${article.snippet.slice(0, 300)}`).join('\n'),
     )}`,
     maxTokens: 1500,
     schema: { name: 'article_scores', jsonSchema: json(scoreSchema), parse: (v) => scoreSchema.parse(v) },
