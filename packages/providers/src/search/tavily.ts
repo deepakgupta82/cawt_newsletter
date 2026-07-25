@@ -7,6 +7,7 @@ interface TavilyResult {
   url?: string;
   title?: string;
   content?: string;
+  raw_content?: string;
   score?: number;
   published_date?: string;
 }
@@ -47,6 +48,9 @@ export class TavilySearchProvider implements SearchProvider {
           topic: 'news',
           max_results: perQuery,
           days: Math.max(1, Math.ceil(request.maxAgeHours / 24)),
+          // Fuller article text so summaries and the fact-checker have real
+          // source, not a one-line teaser. Still a basic (1-credit) search.
+          include_raw_content: true,
           include_domains: request.preferredDomains ?? [],
           exclude_domains: request.blockedDomains ?? [],
         }),
@@ -79,7 +83,9 @@ export class TavilySearchProvider implements SearchProvider {
           language: 'en',
           regions: request.regions ?? [],
           topics: [],
-          snippet: (result.content ?? '').slice(0, 600),
+          // snippet doubles as the content the summariser grounds on for real
+          // providers (no separate blob), so keep enough to work with.
+          snippet: (result.raw_content || result.content || '').slice(0, 4000),
           contentHash: createHash('sha256').update(titleKey(result.title)).digest('hex').slice(0, 32),
           relevanceScore: result.score,
           provider: this.name,

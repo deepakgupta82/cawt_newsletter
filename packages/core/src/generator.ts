@@ -30,7 +30,7 @@ import { checkStoryAgainstSources, detectConflictingFigures } from './factcheck.
  * broken rather than dynamic.
  */
 
-const queryPlanSchema = z.object({ queries: z.array(z.string().min(1)).min(1).max(8) });
+const queryPlanSchema = z.object({ queries: z.array(z.string().min(1)).min(1).max(3) });
 const scoreSchema = z.object({
   scores: z.array(z.object({ id: z.string(), score: z.number().min(0).max(1), reason: z.string().default('') })),
 });

@@ -67,6 +67,8 @@ export const scheduleSchema = z.object({
   cron: z.string().min(1).describe('Standard 5-field cron, evaluated in the timezone below.'),
   timezone: z.string().min(1).default('Asia/Kolkata'),
   enabled: z.boolean().default(false),
+  /** ISO instant of the scheduled slot last run, so the ticker never double-fires. */
+  lastRunAt: z.string().optional(),
 });
 export type Schedule = z.infer<typeof scheduleSchema>;
 

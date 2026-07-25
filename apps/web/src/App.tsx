@@ -37,6 +37,17 @@ function Icon({ path, className }: { path: string; className?: string }) {
   );
 }
 
+function scheduleLabel(schedule: Newsletter['schedule']): string | null {
+  if (!schedule?.enabled) return null;
+  const match = /^(\d+)\s+(\d+)\s+\*\s+\*\s+(.+)$/.exec(schedule.cron);
+  if (!match) return 'Scheduled';
+  const time = `${match[2]!.padStart(2, '0')}:${match[1]!.padStart(2, '0')}`;
+  const dow = match[3];
+  if (dow === '*') return `Daily ${time}`;
+  if (dow === '1-5') return `Weekdays ${time}`;
+  return `Weekly ${time}`;
+}
+
 function StatusChip({ status }: { status: string }) {
   const tones: Record<string, string> = {
     active: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
@@ -74,7 +85,10 @@ export default function App() {
   const [filter, setFilter] = useState('');
   const [userMenu, setUserMenu] = useState(false);
   const [designerWidth, setDesignerWidth] = useState(() => Number(localStorage.getItem(WIDTH_KEY)) || 380);
+  const [focus, setFocus] = useState<{ tab: string; n: number }>({ tab: 'preview', n: 0 });
   const splitRef = useRef<HTMLDivElement>(null);
+
+  const requestTab = (tab: string) => setFocus((current) => ({ tab, n: current.n + 1 }));
 
   useEffect(() => {
     if (!session) return;
@@ -349,6 +363,25 @@ export default function App() {
                 {active ? active.name : startMode ? 'New newsletter' : 'Newsletter Studio'}
               </h1>
               {active && <StatusChip status={active.status} />}
+              {active && (
+                <button
+                  onClick={() => requestTab('audience')}
+                  title={
+                    active.schedule?.enabled
+                      ? `${active.schedule.cron} (${active.schedule.timezone})`
+                      : 'Set recipients and a delivery schedule'
+                  }
+                  className={cx(
+                    'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10.5px] font-medium transition-colors',
+                    active.schedule?.enabled
+                      ? 'border-teal-200 bg-accent-soft text-teal-800 hover:border-teal-300'
+                      : 'border-stone-200 text-stone-500 hover:bg-stone-50 hover:text-stone-800',
+                  )}
+                >
+                  <Icon path="M12 7v5l3 2M12 21a9 9 0 100-18 9 9 0 000 18z" className="h-3 w-3" />
+                  {scheduleLabel(active.schedule) ?? 'Not scheduled'}
+                </button>
+              )}
             </div>
             <p className="text-[11.5px] leading-tight text-muted">
               {active ? `Blueprint v${active.blueprint.version}` : 'Prompt-driven authoring for CapAlpha WhiteTrust'}
@@ -455,6 +488,8 @@ export default function App() {
                     setActive(next);
                     void api.listNewsletters().then(setList);
                   }}
+                  focusTab={focus.tab as never}
+                  focusSignal={focus.n}
                 />
               </div>
             </div>

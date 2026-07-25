@@ -27,6 +27,9 @@ interface Props {
   lastCost: number | null;
   onOpenEdition: (editionId: string) => void | Promise<void>;
   onNewsletterChange: (next: Newsletter) => void;
+  /** A bump on this signal focuses `focusTab` (used by the header schedule chip). */
+  focusTab?: Tab;
+  focusSignal?: number;
 }
 
 function formatWindow(hours: number): string {
@@ -96,6 +99,8 @@ export function MainPane({
   lastCost,
   onOpenEdition,
   onNewsletterChange,
+  focusTab,
+  focusSignal,
 }: Props) {
   const [tab, setTab] = useState<Tab>('preview');
   const [testTo, setTestTo] = useState('reviewer@cawt.ai');
@@ -117,6 +122,11 @@ export function MainPane({
   const stories = edition ? collectStories(edition) : [];
   const flagged = stories.filter((story) => story.warnings.length > 0);
   const blueprint = newsletter.blueprint;
+
+  // The header schedule chip focuses the Audience tab via a signal bump.
+  useEffect(() => {
+    if (focusSignal && focusTab) setTab(focusTab);
+  }, [focusSignal, focusTab]);
 
   // A fresh edition invalidates any post built from the previous one.
   useEffect(() => {

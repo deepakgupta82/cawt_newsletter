@@ -89,9 +89,10 @@ ${UNTRUSTED_CONTENT_RULE}`.trim(),
   planQueries: `
 You turn a story_group's selection rule into a small set of focused search queries.
 
-Produce between three and six queries. Each should be a phrase a journalist would type, not a sentence. Cover
-distinct angles rather than rewording the same idea. Include the region name in the query when the group is scoped
-to a region. Do not include date filters - recency is handled separately.`.trim(),
+Produce two or three queries, no more. Each should be a phrase a journalist would type, not a sentence. Cover
+distinct angles rather than rewording the same idea, and keep the count low because each query is a paid search.
+Include the region name in the query when the group is scoped to a region. Do not include date filters - recency is
+handled separately.`.trim(),
 
   scoreArticles: `
 You score candidate articles for how well they fit a story_group's stated intent.

@@ -22,6 +22,7 @@ import { composeSocial, design, generateEdition, totalCost } from '@cawt/core';
 import { renderEditionHtml, renderEditionText } from '@cawt/render';
 import { createContext, DEFAULT_BRAND, loadEnv, type AppContext } from './context.js';
 import { normaliseSample } from './sample.js';
+import { startScheduler } from './scheduler.js';
 
 await loadEnv();
 const ctx: AppContext = await createContext();
@@ -191,12 +192,21 @@ app.patch(
         }
       : existing.blueprint;
 
+    // Enabling a schedule stamps lastRunAt to now, so the ticker starts from the
+    // next slot rather than back-firing the most recent one on save.
+    const schedule =
+      patch.schedule === undefined
+        ? existing.schedule
+        : patch.schedule && patch.schedule.enabled && !patch.schedule.lastRunAt
+          ? { ...patch.schedule, lastRunAt: existing.schedule?.lastRunAt ?? nowIso() }
+          : patch.schedule;
+
     const updated = newsletterSchema.parse({
       ...existing,
       ...(patch.name ? { name: patch.name } : {}),
       ...(patch.brief ? { brief: { text: patch.brief, updatedAt: nowIso() } } : {}),
       ...(patch.status ? { status: patch.status } : {}),
-      ...(patch.schedule !== undefined ? { schedule: patch.schedule } : {}),
+      ...(patch.schedule !== undefined ? { schedule } : {}),
       blueprint,
       updatedAt: nowIso(),
     });
@@ -545,4 +555,7 @@ app.listen(port, () => {
   console.log(
     `  providers: llm=${ctx.config.llm} search=${ctx.config.search} email=${ctx.config.email} storage=${ctx.config.storage}\n`,
   );
+  // The ticker only acts on newsletters whose schedule is enabled, so it is
+  // safe to run everywhere; set SCHEDULER_ENABLED=false to turn it off.
+  if (process.env['SCHEDULER_ENABLED'] !== 'false') startScheduler(ctx);
 });

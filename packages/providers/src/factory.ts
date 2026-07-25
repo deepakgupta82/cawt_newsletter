@@ -3,6 +3,7 @@ import { MockLlmProvider } from './llm/mock.js';
 import { AzureOpenAiProvider } from './llm/azure-openai.js';
 import { MockSearchProvider } from './search/mock.js';
 import { TavilySearchProvider } from './search/tavily.js';
+import { BraveSearchProvider } from './search/brave.js';
 import { EmlFileEmailProvider } from './email/eml.js';
 
 /**
@@ -61,8 +62,10 @@ export function createSearchProvider(env: NodeJS.ProcessEnv = process.env): Sear
       return new MockSearchProvider();
     case 'tavily':
       return new TavilySearchProvider(env['TAVILY_API_KEY'] ?? '');
+    case 'brave':
+      return new BraveSearchProvider(env['BRAVE_API_KEY'] ?? '');
     default:
-      throw new Error(`Unknown SEARCH_PROVIDER "${kind}". Expected one of: mock, tavily.`);
+      throw new Error(`Unknown SEARCH_PROVIDER "${kind}". Expected one of: mock, tavily, brave.`);
   }
 }
 
