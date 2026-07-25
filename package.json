@@ -16,18 +16,19 @@
     "dev:api": "npm run dev --workspace @cawt/api",
     "dev:web": "npm run dev --workspace @cawt/web",
     "dev:storage": "azurite --silent --location .azurite --debug .azurite/debug.log",
-    "build": "npm run build --workspace @cawt/web",
-    "start": "npm run start --workspace @cawt/api",
+    "build:web": "npm run build --workspace @cawt/web",
+    "build:api": "node scripts/build-api.mjs",
+    "build": "npm run build:web && npm run build:api",
+    "start": "node apps/api/dist/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json && npm run typecheck --workspace @cawt/web",
     "test": "node --test --import tsx packages/**/test/*.test.ts"
-  },
-  "dependencies": {
-    "tsx": "^4.20.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "azurite": "^3.35.0",
     "concurrently": "^9.1.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   }
 }
