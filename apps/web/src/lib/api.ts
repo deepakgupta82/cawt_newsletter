@@ -1,10 +1,13 @@
 import type {
+  AdminCosts,
   AppConfig,
+  Blueprint,
   ConversationMessage,
   Delivery,
   Edition,
   Newsletter,
   NewsletterSummary,
+  NewsletterSummaryStats,
   Recipient,
 } from './types';
 
@@ -42,8 +45,14 @@ export const api = {
 
   updateNewsletter: (
     id: string,
-    patch: Partial<Pick<Newsletter, 'name' | 'status' | 'schedule' | 'reviewers' | 'autoPublish'>>,
+    patch: Partial<Pick<Newsletter, 'name' | 'status' | 'schedule' | 'reviewers' | 'autoPublish' | 'sourcePolicy'>> & {
+      blueprint?: Blueprint;
+    },
   ) => request<Newsletter>(`/api/newsletters/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+
+  summary: (id: string) => request<NewsletterSummaryStats>(`/api/newsletters/${id}/summary`),
+
+  adminCosts: () => request<AdminCosts>('/api/admin/costs'),
 
   recipients: (id: string) => request<Recipient[]>(`/api/newsletters/${id}/recipients`),
 

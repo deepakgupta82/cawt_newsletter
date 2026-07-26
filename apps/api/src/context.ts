@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { brandSchema, type Brand } from '@cawt/domain';
+import { brandSchema, newsletterSchema, type Brand, type Newsletter } from '@cawt/domain';
 import {
   createEmailProvider,
   createLlmProvider,
@@ -11,6 +11,7 @@ import {
   type SearchProvider,
 } from '@cawt/providers';
 import { createStores, type Stores } from '@cawt/storage';
+
 import type { ContentResolver } from '@cawt/core';
 
 export interface AppContext {
@@ -66,8 +67,34 @@ export async function loadEnv(): Promise<void> {
   }
 }
 
+/**
+ * Fills in fields added after a record was written.
+ *
+ * The stores persist plain JSON and hand it back unparsed, so a newsletter
+ * saved before `reviewers` or `autoPublish` existed comes back without them and
+ * blows up the first caller that reads one. Re-parsing through the schema on
+ * read applies the declared defaults, which is a migration that costs nothing
+ * and cannot get out of step with the schema.
+ */
+function migrateNewsletters(stores: Stores): Stores {
+  const inner = stores.newsletters;
+  const parse = (value: Newsletter): Newsletter => newsletterSchema.parse(value);
+  return {
+    ...stores,
+    newsletters: {
+      get: async (id) => {
+        const found = await inner.get(id);
+        return found ? parse(found) : undefined;
+      },
+      list: async () => (await inner.list()).map(parse),
+      save: (entity) => inner.save(parse(entity)),
+      delete: (id) => inner.delete(id),
+    },
+  };
+}
+
 export async function createContext(): Promise<AppContext> {
-  const stores = createStores();
+  const stores = migrateNewsletters(createStores());
   const llm = createLlmProvider();
   const search = createSearchProvider();
   const email = createEmailProvider();

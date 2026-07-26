@@ -1,24 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AppConfig, ConversationMessage, Edition, Newsletter, NewsletterSummary, StoryBlock } from './lib/types';
+import type { AppConfig, ConversationMessage, Edition, Newsletter, NewsletterSummary } from './lib/types';
 import { api } from './lib/api';
+import { scheduleLabel } from './lib/edition';
 import { StartScreen } from './components/StartScreen';
-import { DesignerPanel } from './components/DesignerPanel';
-import { MainPane } from './components/MainPane';
+import { OverviewPanel } from './components/OverviewPanel';
+import { EditionPanel } from './components/EditionPanel';
+import { DesignPanel } from './components/DesignPanel';
+import { AudiencePanel } from './components/AudiencePanel';
+import { SentPanel } from './components/SentPanel';
+import { AdminPanel } from './components/AdminPanel';
 import { LoginScreen, type Session } from './components/LoginScreen';
-import { cx, Pill } from './components/ui';
+import { Button, cx } from './components/ui';
 
 const SESSION_KEY = 'cawt.session';
 const RAIL_KEY = 'cawt.railOpen';
-const WIDTH_KEY = 'cawt.designerWidth';
 
-function collectStories(edition: Edition): StoryBlock[] {
-  const out: StoryBlock[] = [];
-  for (const block of edition.blocks) {
-    if (block.type === 'story') out.push(block);
-    if (block.type === 'section') for (const child of block.children) if (child.type === 'story') out.push(child);
-  }
-  return out;
-}
+type Tab = 'overview' | 'edition' | 'design' | 'audience' | 'sent';
+
+const TABS: Array<[Tab, string]> = [
+  ['overview', 'Overview'],
+  ['edition', 'Edition'],
+  ['design', 'Design'],
+  ['audience', 'Audience'],
+  ['sent', 'Sent'],
+];
 
 function readSession(): Session | null {
   try {
@@ -37,33 +42,29 @@ function Icon({ path, className }: { path: string; className?: string }) {
   );
 }
 
-function scheduleLabel(schedule: Newsletter['schedule']): string | null {
-  if (!schedule?.enabled) return null;
-  const match = /^(\d+)\s+(\d+)\s+\*\s+\*\s+(.+)$/.exec(schedule.cron);
-  if (!match) return 'Scheduled';
-  const time = `${match[2]!.padStart(2, '0')}:${match[1]!.padStart(2, '0')}`;
-  const dow = match[3];
-  if (dow === '*') return `Daily ${time}`;
-  if (dow === '1-5') return `Weekdays ${time}`;
-  return `Weekly ${time}`;
-}
-
-function StatusChip({ status }: { status: string }) {
-  const tones: Record<string, string> = {
-    active: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-    draft: 'bg-stone-100 text-stone-600 ring-stone-200',
-    paused: 'bg-amber-50 text-amber-700 ring-amber-200',
-    archived: 'bg-stone-100 text-stone-500 ring-stone-200',
-  };
-  return (
-    <span
-      className={cx(
-        'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-medium capitalize ring-1 ring-inset',
-        tones[status] ?? tones['draft'],
-      )}
-    >
-      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
-      {status}
+/** A small fact about the newsletter, shown as a chip under its name. */
+function Chip({ children, tone = 'plain', onClick, title }: {
+  children: React.ReactNode;
+  tone?: 'plain' | 'accent' | 'muted';
+  onClick?: () => void;
+  title?: string;
+}) {
+  const className = cx(
+    'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium',
+    tone === 'accent'
+      ? 'border-teal-200 bg-accent-soft text-teal-800'
+      : tone === 'muted'
+        ? 'border-stone-200 bg-white text-stone-500'
+        : 'border-stone-200 bg-stone-50 text-stone-600',
+    onClick && 'transition-colors hover:border-stone-300 hover:text-stone-900',
+  );
+  return onClick ? (
+    <button onClick={onClick} title={title} className={className}>
+      {children}
+    </button>
+  ) : (
+    <span title={title} className={className}>
+      {children}
     </span>
   );
 }
@@ -75,20 +76,17 @@ export default function App() {
   const [active, setActive] = useState<Newsletter | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [edition, setEdition] = useState<Edition | null>(null);
-  const [lastCost, setLastCost] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [previewing, setPreviewing] = useState(false);
+  const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showStart, setShowStart] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [tab, setTab] = useState<Tab>('overview');
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem(RAIL_KEY) !== 'false');
   const [filter, setFilter] = useState('');
   const [userMenu, setUserMenu] = useState(false);
-  const [designerWidth, setDesignerWidth] = useState(() => Number(localStorage.getItem(WIDTH_KEY)) || 380);
-  const [focus, setFocus] = useState<{ tab: string; n: number }>({ tab: 'preview', n: 0 });
-  const splitRef = useRef<HTMLDivElement>(null);
-
-  const requestTab = (tab: string) => setFocus((current) => ({ tab, n: current.n + 1 }));
 
   useEffect(() => {
     if (!session) return;
@@ -101,11 +99,17 @@ export default function App() {
   const open = useCallback(async (id: string) => {
     setError(null);
     setEdition(null);
-    setLastCost(null);
     setShowStart(false);
+    setShowAdmin(false);
+    setTab('overview');
     const [newsletter, thread] = await Promise.all([api.getNewsletter(id), api.conversation(id)]);
     setActive(newsletter);
     setMessages(thread);
+    // The most recent edition is what an editor almost always wants in hand.
+    void api
+      .summary(id)
+      .then((stats) => setEdition(stats.latestEdition))
+      .catch(() => undefined);
   }, []);
 
   // Deep link from the review email's Edit button: /?newsletter=<id> opens it.
@@ -133,7 +137,6 @@ export default function App() {
       setError(null);
       try {
         const result = await api.createNewsletter(input);
-        setLastCost(result.cost);
         setList(await api.listNewsletters());
         await open(result.newsletter.id);
       } catch (caught) {
@@ -154,8 +157,6 @@ export default function App() {
         const result = await api.refine(active.id, instruction);
         setActive(result.newsletter);
         setMessages(await api.conversation(active.id));
-        setLastCost(result.cost);
-        setEdition(null);
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : 'Could not apply that change');
       } finally {
@@ -165,39 +166,21 @@ export default function App() {
     [active],
   );
 
-  const preview = useCallback(async () => {
+  const run = useCallback(async () => {
     if (!active) return;
-    setPreviewing(true);
+    setRunning(true);
     setError(null);
     try {
       const result = await api.preview(active.id);
       setEdition(result.edition);
-      setLastCost(result.cost);
+      setRefreshKey((key) => key + 1);
+      setTab('edition');
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not generate a preview');
+      setError(caught instanceof Error ? caught.message : 'Could not generate an edition');
     } finally {
-      setPreviewing(false);
+      setRunning(false);
     }
   }, [active]);
-
-  const startDrag = (event: React.PointerEvent) => {
-    event.preventDefault();
-    const move = (moveEvent: PointerEvent) => {
-      const rect = splitRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      setDesignerWidth(Math.max(300, Math.min(640, moveEvent.clientX - rect.left)));
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      setDesignerWidth((width) => {
-        localStorage.setItem(WIDTH_KEY, String(width));
-        return width;
-      });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  };
 
   const logout = () => {
     localStorage.removeItem(SESSION_KEY);
@@ -207,26 +190,22 @@ export default function App() {
     setEdition(null);
   };
 
-  const login = (next: Session) => {
+  if (!session) return <LoginScreen onLogin={(next) => {
     localStorage.setItem(SESSION_KEY, JSON.stringify(next));
     setSession(next);
-  };
-
-  if (!session) return <LoginScreen onLogin={login} />;
+  }} />;
 
   const usingMocks = config ? config.llm === 'mock' || config.search === 'mock' : false;
   const live = config ? config.llm !== 'mock' : false;
-  const startMode = showStart || (!active && list.length === 0);
+  const startMode = showStart || (!active && !showAdmin && list.length === 0);
   const filtered = filter.trim()
     ? list.filter((item) => item.name.toLowerCase().includes(filter.trim().toLowerCase()))
     : list;
 
-  const stories = edition ? collectStories(edition) : [];
-  const flagged = stories.filter((story) => story.warnings.length > 0).length;
-
   const newNewsletter = () => {
     setActive(null);
     setEdition(null);
+    setShowAdmin(false);
     setShowStart(true);
   };
 
@@ -237,29 +216,11 @@ export default function App() {
     .map((part) => part[0]!.toUpperCase())
     .join('');
 
-  const metrics: Array<{ k: string; v: string; d: string; tone?: 'good' | 'warn' }> = [
-    {
-      k: 'This run',
-      v: lastCost !== null ? `$${lastCost.toFixed(4)}` : '—',
-      d: config ? `model ${config.llm === 'mock' ? 'mock' : config.modelWriter}` : 'no run yet',
-    },
-    { k: 'Monthly cap', v: config ? `$${config.monthlyCapUsd.toFixed(2)}` : '—', d: 'provider spend ceiling' },
-    {
-      k: 'Stories',
-      v: edition ? String(stories.length) : '—',
-      d: edition ? `${stories.reduce((sum, s) => sum + s.sources.length, 0)} sources cited` : 'run to populate',
-    },
-    {
-      k: 'Fact checks',
-      v: edition ? String(flagged) : '—',
-      d: edition ? (flagged === 0 ? 'all figures traced' : 'to review') : 'run to check',
-      tone: edition ? (flagged === 0 ? 'good' : 'warn') : undefined,
-    },
-  ];
+  const cadence = active ? scheduleLabel(active.schedule) : null;
 
   return (
     <div className="flex h-full">
-      {/* ---- Dark operations rail (collapsible) ---- */}
+      {/* ---- Navigation rail ---- */}
       {railOpen ? (
         <aside className="flex w-60 shrink-0 flex-col bg-rail text-rail-ink">
           <div className="flex items-start justify-between px-4 pb-3 pt-5">
@@ -315,7 +276,7 @@ export default function App() {
                   onClick={() => void open(item.id)}
                   className={cx(
                     'mb-0.5 flex w-full flex-col rounded-lg px-3 py-2 text-left transition-colors',
-                    active?.id === item.id ? 'bg-rail-2 text-white' : 'text-slate-300 hover:bg-white/5',
+                    active?.id === item.id && !showAdmin ? 'bg-rail-2 text-white' : 'text-slate-300 hover:bg-white/5',
                   )}
                 >
                   <span className="truncate text-[12.5px] font-medium">{item.name}</span>
@@ -327,8 +288,21 @@ export default function App() {
             )}
           </nav>
 
-          <div className="border-t border-white/5 px-4 py-3">
-            <div className="flex items-center gap-2 text-[11px] text-slate-400">
+          <div className="border-t border-white/5 px-2 py-2">
+            <button
+              onClick={() => {
+                setShowAdmin(true);
+                setShowStart(false);
+              }}
+              className={cx(
+                'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12.5px] transition-colors',
+                showAdmin ? 'bg-rail-2 text-white' : 'text-slate-300 hover:bg-white/5',
+              )}
+            >
+              <Icon path="M4 5h16v14H4zM4 10h16M9 10v9" className="h-4 w-4" />
+              Admin &amp; costs
+            </button>
+            <div className="flex items-center gap-2 px-3 pb-1 pt-2 text-[11px] text-slate-400">
               <span className={cx('h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-400 animate-pulse-soft' : 'bg-sky-400')} />
               {live ? 'Live models' : 'Local mocks'}
               {live && <span className="ml-auto text-slate-500">South India</span>}
@@ -352,12 +326,13 @@ export default function App() {
           >
             <Icon path="M12 5v14M5 12h14" className="h-[18px] w-[18px]" />
           </button>
-          <div
-            className="mt-1 grid h-9 w-9 place-items-center rounded-lg text-slate-400"
-            title={`${list.length} newsletters`}
+          <button
+            onClick={() => setShowAdmin(true)}
+            title="Admin & costs"
+            className="grid h-9 w-9 place-items-center rounded-lg text-slate-300 transition-colors hover:bg-white/5 hover:text-white"
           >
-            <Icon path="M4 5h16v4H4zM4 12h9v7H4zM16 12h4v7h-4z" className="h-[17px] w-[17px]" />
-          </div>
+            <Icon path="M4 5h16v14H4zM4 10h16M9 10v9" className="h-[17px] w-[17px]" />
+          </button>
           <span
             className={cx('mt-auto h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-400 animate-pulse-soft' : 'bg-sky-400')}
             title={live ? 'Live models' : 'Local mocks'}
@@ -365,150 +340,180 @@ export default function App() {
         </aside>
       )}
 
-      {/* ---- Main column ---- */}
+      {/* ---- Workspace ---- */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex shrink-0 items-center justify-between gap-4 border-b border-line bg-white px-5 py-3 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="truncate text-[15px] font-semibold leading-tight tracking-[-0.01em] text-ink">
-                {active ? active.name : startMode ? 'New newsletter' : 'Newsletter Studio'}
+        <header className="shrink-0 border-b border-line bg-white px-6 pt-4">
+          <div className="flex flex-wrap items-start gap-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-[18px] font-semibold leading-tight tracking-[-0.01em] text-ink">
+                {showAdmin
+                  ? 'Admin & costs'
+                  : active
+                    ? active.name
+                    : startMode
+                      ? 'New newsletter'
+                      : 'Newsletter Studio'}
               </h1>
-              {active && <StatusChip status={active.status} />}
-              {active && (
+              {active && !showAdmin ? (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <Chip
+                    tone={cadence ? 'accent' : 'muted'}
+                    onClick={() => setTab('audience')}
+                    title={
+                      active.schedule?.enabled
+                        ? `${active.schedule.cron} (${active.schedule.timezone})`
+                        : 'Set a delivery schedule'
+                    }
+                  >
+                    <Icon path="M12 7v5l3 2M12 21a9 9 0 100-18 9 9 0 000 18z" className="h-3 w-3" />
+                    {cadence ?? 'Not scheduled'}
+                  </Chip>
+                  <Chip onClick={() => setTab('audience')}>
+                    {active.autoPublish ? 'Auto-publishes' : 'Approval required'}
+                  </Chip>
+                  <Chip tone="muted">Blueprint v{active.blueprint.version}</Chip>
+                </div>
+              ) : (
+                <p className="mt-1 text-[12.5px] text-muted">
+                  {showAdmin
+                    ? 'What each newsletter costs to run'
+                    : 'Prompt-driven authoring for CapAlpha WhiteTrust'}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {active && !showAdmin && (
+                <Button size="sm" onClick={() => void run()} loading={running}>
+                  {edition ? 'Run again' : 'Run against live news'}
+                </Button>
+              )}
+              {active && !showAdmin && edition && edition.status !== 'sent' && (
+                <Button variant="primary" size="sm" onClick={() => setTab('edition')}>
+                  Review &amp; publish
+                </Button>
+              )}
+
+              <div className="relative ml-1">
                 <button
-                  onClick={() => requestTab('audience')}
-                  title={
-                    active.schedule?.enabled
-                      ? `${active.schedule.cron} (${active.schedule.timezone})`
-                      : 'Set recipients and a delivery schedule'
-                  }
+                  onClick={() => setUserMenu((value) => !value)}
+                  className="flex items-center gap-2 rounded-lg border border-line py-1 pl-1 pr-2 transition-colors hover:bg-stone-50"
+                >
+                  <span className="grid h-7 w-7 place-items-center rounded-md bg-rail text-[11px] font-semibold text-white">
+                    {initials}
+                  </span>
+                  <Icon path="M6 9l6 6 6-6" className="h-3.5 w-3.5 text-stone-400" />
+                </button>
+                {userMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setUserMenu(false)} />
+                    <div className="absolute right-0 z-20 mt-1.5 w-56 rounded-xl border border-line bg-white p-1.5 shadow-lg">
+                      <div className="px-2.5 py-2">
+                        <p className="truncate text-[13px] font-medium text-ink">{session.name}</p>
+                        <p className="truncate text-[11.5px] text-muted">{session.email}</p>
+                      </div>
+                      <div className="my-1 h-px bg-line" />
+                      <button
+                        onClick={logout}
+                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-stone-700 transition-colors hover:bg-stone-50"
+                      >
+                        <Icon path="M15 12H3m0 0l4-4m-4 4l4 4M17 4h2a2 2 0 012 2v12a2 2 0 01-2 2h-2" className="h-4 w-4" />
+                        Sign out
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {active && !showAdmin && (
+            <div className="mt-3 flex gap-1">
+              {TABS.map(([value, label]) => (
+                <button
+                  key={value}
+                  onClick={() => setTab(value)}
                   className={cx(
-                    'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10.5px] font-medium transition-colors',
-                    active.schedule?.enabled
-                      ? 'border-teal-200 bg-accent-soft text-teal-800 hover:border-teal-300'
-                      : 'border-stone-200 text-stone-500 hover:bg-stone-50 hover:text-stone-800',
+                    'border-b-2 px-3 pb-2.5 pt-1 text-[13.5px] transition-colors',
+                    tab === value
+                      ? 'border-teal-600 font-semibold text-teal-800'
+                      : 'border-transparent font-medium text-stone-500 hover:text-stone-900',
                   )}
                 >
-                  <Icon path="M12 7v5l3 2M12 21a9 9 0 100-18 9 9 0 000 18z" className="h-3 w-3" />
-                  {scheduleLabel(active.schedule) ?? 'Not scheduled'}
+                  {label}
+                  {value === 'edition' && edition && edition.warnings.length > 0 && (
+                    <span className="ml-1.5 rounded-full border border-amber-200 bg-amber-50 px-1.5 text-[10.5px] font-bold text-amber-700">
+                      {edition.warnings.length}
+                    </span>
+                  )}
                 </button>
-              )}
+              ))}
             </div>
-            <p className="text-[11.5px] leading-tight text-muted">
-              {active ? `Blueprint v${active.blueprint.version}` : 'Prompt-driven authoring for CapAlpha WhiteTrust'}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {config && (
-              <div className="hidden items-center gap-1 rounded-lg border border-line bg-canvas px-1.5 py-1 lg:flex">
-                <Pill tone={config.llm === 'mock' ? 'mock' : 'live'}>
-                  model {config.llm === 'mock' ? 'mock' : config.modelWriter}
-                </Pill>
-                <Pill tone={config.search === 'mock' ? 'mock' : 'live'}>search {config.search}</Pill>
-                <Pill tone={config.email === 'eml' ? 'mock' : 'live'}>email {config.email}</Pill>
-                <Pill>store {config.storage}</Pill>
-              </div>
-            )}
-
-            <div className="hidden h-6 w-px bg-line lg:block" />
-
-            <div className="relative">
-              <button
-                onClick={() => setUserMenu((open) => !open)}
-                className="flex items-center gap-2 rounded-lg border border-line py-1 pl-1 pr-2 transition-colors hover:bg-stone-50"
-              >
-                <span className="grid h-7 w-7 place-items-center rounded-md bg-rail text-[11px] font-semibold text-white">
-                  {initials}
-                </span>
-                <Icon path="M6 9l6 6 6-6" className="h-3.5 w-3.5 text-stone-400" />
-              </button>
-              {userMenu && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setUserMenu(false)} />
-                  <div className="absolute right-0 z-20 mt-1.5 w-56 rounded-xl border border-line bg-white p-1.5 shadow-lg">
-                    <div className="px-2.5 py-2">
-                      <p className="truncate text-[13px] font-medium text-ink">{session.name}</p>
-                      <p className="truncate text-[11.5px] text-muted">{session.email}</p>
-                    </div>
-                    <div className="my-1 h-px bg-line" />
-                    <button
-                      onClick={logout}
-                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-stone-700 transition-colors hover:bg-stone-50"
-                    >
-                      <Icon path="M15 12H3m0 0l4-4m-4 4l4 4M17 4h2a2 2 0 012 2v12a2 2 0 01-2 2h-2" className="h-4 w-4" />
-                      Sign out
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+          )}
         </header>
 
         {usingMocks && (
-          <div className="shrink-0 border-b border-sky-200 bg-sky-50 px-5 py-1.5 text-[12px] text-sky-800">
-            Running on local mocks. No provider is being billed, no email leaves this machine, and results are
-            identical on every run.
+          <div className="shrink-0 border-b border-sky-200 bg-sky-50 px-6 py-1.5 text-[12px] text-sky-800">
+            Running on local mocks. No provider is being billed, no email leaves this machine, and results are identical
+            on every run.
           </div>
         )}
 
-        {startMode || !active ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <main className="min-h-0 flex-1 overflow-y-auto bg-canvas">
+          {showAdmin ? (
+            <AdminPanel onOpenNewsletter={(id) => void open(id)} />
+          ) : startMode || !active ? (
             <StartScreen onCreate={create} busy={busy} error={error} />
-          </div>
-        ) : (
-          <>
-            <div className="grid shrink-0 grid-cols-2 gap-3 border-b border-line bg-canvas px-5 py-3.5 sm:grid-cols-4">
-              {metrics.map((m) => (
-                <div key={m.k} className="rounded-xl border border-line bg-white px-4 py-2.5">
-                  <p className="text-[10.5px] uppercase tracking-[0.07em] text-muted">{m.k}</p>
-                  <p className="mt-0.5 text-[21px] font-semibold tracking-[-0.02em] text-ink tabular-nums">{m.v}</p>
-                  <p
-                    className={cx(
-                      'text-[11px]',
-                      m.tone === 'good' ? 'text-emerald-600' : m.tone === 'warn' ? 'text-amber-600' : 'text-muted',
-                    )}
-                  >
-                    {m.d}
-                  </p>
-                </div>
-              ))}
-            </div>
+          ) : tab === 'overview' ? (
+            <OverviewPanel
+              newsletter={active}
+              refreshKey={refreshKey}
+              onOpenEdition={openEdition}
+              onGoto={setTab}
+              onRun={run}
+              running={running}
+            />
+          ) : tab === 'edition' ? (
+            <EditionPanel
+              newsletter={active}
+              edition={edition}
+              onRun={run}
+              running={running}
+              onSent={() => setRefreshKey((key) => key + 1)}
+              onEditionChange={setEdition}
+            />
+          ) : tab === 'design' ? (
+            <DesignPanel
+              newsletter={active}
+              messages={messages}
+              onRefine={refine}
+              busy={busy}
+              onNewsletterChange={(next) => {
+                setActive(next);
+                void api.listNewsletters().then(setList);
+              }}
+            />
+          ) : tab === 'audience' ? (
+            <AudiencePanel
+              newsletter={active}
+              onNewsletterChange={(next) => {
+                setActive(next);
+                setRefreshKey((key) => key + 1);
+                void api.listNewsletters().then(setList);
+              }}
+            />
+          ) : (
+            <SentPanel
+              newsletter={active}
+              refreshKey={refreshKey}
+              onOpenEdition={openEdition}
+              onGotoEdition={() => setTab('edition')}
+            />
+          )}
+        </main>
 
-            <div ref={splitRef} className="flex min-h-0 flex-1">
-              <div style={{ width: designerWidth }} className="shrink-0">
-                <DesignerPanel newsletter={active} messages={messages} onRefine={refine} busy={busy} />
-              </div>
-              <div
-                onPointerDown={startDrag}
-                title="Drag to resize"
-                className="group w-1 shrink-0 cursor-col-resize bg-line transition-colors hover:bg-teal-500"
-              >
-                <div className="mx-auto h-full w-px bg-transparent group-hover:bg-teal-500" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <MainPane
-                  newsletter={active}
-                  edition={edition}
-                  onPreview={preview}
-                  previewing={previewing}
-                  lastCost={lastCost}
-                  onOpenEdition={openEdition}
-                  onNewsletterChange={(next) => {
-                    setActive(next);
-                    void api.listNewsletters().then(setList);
-                  }}
-                  focusTab={focus.tab as never}
-                  focusSignal={focus.n}
-                />
-              </div>
-            </div>
-          </>
-        )}
-
-        {error && active && (
-          <div className="shrink-0 border-t border-red-200 bg-red-50 px-5 py-2 text-[12.5px] text-red-800">{error}</div>
+        {error && active && !showAdmin && (
+          <div className="shrink-0 border-t border-red-200 bg-red-50 px-6 py-2 text-[12.5px] text-red-800">{error}</div>
         )}
       </div>
     </div>

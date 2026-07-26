@@ -78,7 +78,55 @@ export interface Newsletter {
   recipientGroupId: string | null;
   reviewers: string[];
   autoPublish: boolean;
+  sourcePolicy: SourcePolicy;
   updatedAt: string;
+}
+
+export interface SourcePolicy {
+  preferredDomains: string[];
+  blockedDomains: string[];
+  mode: 'feeds_only' | 'feeds_then_search' | 'search_first';
+}
+
+export interface EditionRef {
+  id: string;
+  status: EditionStatus;
+  subject: string;
+  createdAt: string;
+  sentAt: string | null;
+  costUsd: number;
+  deliveredCount: number;
+}
+
+export interface NewsletterSummaryStats {
+  recipientCount: number;
+  reviewerCount: number;
+  editionCount: number;
+  latestEdition: Edition | null;
+  lastSentAt: string | null;
+  lastSentCount: number;
+  lastCostUsd: number | null;
+  monthCostUsd: number;
+  nextRunAt: string | null;
+  recentEditions: EditionRef[];
+}
+
+export interface AdminCosts {
+  monthlyCapUsd: number;
+  monthToDateUsd: number;
+  editionCount: number;
+  avgPerEditionUsd: number;
+  newsletters: Array<{
+    id: string;
+    name: string;
+    status: string;
+    scheduled: boolean;
+    editions: number;
+    monthUsd: number;
+    avgUsd: number;
+    allTimeEditions: number;
+  }>;
+  providers: { llm: string; model: string; search: string; email: string; storage: string };
 }
 
 export interface NewsletterSummary {

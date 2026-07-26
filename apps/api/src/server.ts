@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
+import parser from 'cron-parser';
 import { z } from 'zod';
 import {
   blueprintSchema,
@@ -182,6 +183,7 @@ const patchSchema = z.object({
   status: z.enum(['draft', 'active', 'paused', 'archived']).optional(),
   reviewers: z.array(z.string().email()).max(20).optional(),
   autoPublish: z.boolean().optional(),
+  sourcePolicy: newsletterSchema.shape.sourcePolicy.optional(),
 });
 
 /** Direct edits. Anything the user sets by hand is marked as supplied. */
@@ -216,6 +218,7 @@ app.patch(
       ...(patch.schedule !== undefined ? { schedule } : {}),
       ...(patch.reviewers !== undefined ? { reviewers: patch.reviewers } : {}),
       ...(patch.autoPublish !== undefined ? { autoPublish: patch.autoPublish } : {}),
+      ...(patch.sourcePolicy !== undefined ? { sourcePolicy: patch.sourcePolicy } : {}),
       blueprint,
       updatedAt: nowIso(),
     });
@@ -280,6 +283,119 @@ app.get(
   '/api/newsletters/:id/editions',
   route(async (req, res) => {
     res.json(await ctx.stores.editions.listByNewsletter(param(req, 'id')));
+  }),
+);
+
+/** The next time a cron fires, in its own timezone. Null if it cannot be read. */
+function nextFire(cron: string, timezone: string): string | null {
+  try {
+    return parser.parseExpression(cron, { currentDate: new Date(), tz: timezone }).next().toDate().toISOString();
+  } catch {
+    return null;
+  }
+}
+
+function monthStartIso(): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+}
+
+/**
+ * Everything the Overview screen needs in one call: where this newsletter
+ * stands, what it last did, and what it will do next.
+ */
+app.get(
+  '/api/newsletters/:id/summary',
+  route(async (req, res) => {
+    const newsletter = await requireNewsletter(param(req, 'id'));
+    const [recipients, editions, deliveries] = await Promise.all([
+      recipientsFor(newsletter),
+      ctx.stores.editions.listByNewsletter(newsletter.id),
+      ctx.stores.deliveries.listByNewsletter(newsletter.id),
+    ]);
+
+    const ordered = [...editions].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const latest = ordered[0] ?? null;
+    const lastSentEdition = ordered.find((edition) => edition.status === 'sent') ?? null;
+    const live = deliveries.filter((delivery) => delivery.kind === 'live');
+    const since = monthStartIso();
+
+    res.json({
+      recipientCount: recipients.filter((recipient) => recipient.status === 'active').length,
+      reviewerCount: newsletter.reviewers.length,
+      editionCount: editions.length,
+      latestEdition: latest,
+      lastSentAt: lastSentEdition?.sentAt ?? null,
+      lastSentCount: lastSentEdition
+        ? live.filter((delivery) => delivery.editionId === lastSentEdition.id && delivery.status === 'sent').length
+        : 0,
+      lastCostUsd: latest ? totalCost(latest.usage) : null,
+      monthCostUsd: editions
+        .filter((edition) => edition.createdAt >= since)
+        .reduce((sum, edition) => sum + totalCost(edition.usage), 0),
+      nextRunAt:
+        newsletter.schedule?.enabled && newsletter.schedule.cron
+          ? nextFire(newsletter.schedule.cron, newsletter.schedule.timezone)
+          : null,
+      recentEditions: ordered.slice(0, 5).map((edition) => ({
+        id: edition.id,
+        status: edition.status,
+        subject: edition.subject,
+        createdAt: edition.createdAt,
+        sentAt: edition.sentAt ?? null,
+        costUsd: totalCost(edition.usage),
+        deliveredCount: live.filter((d) => d.editionId === edition.id && d.status === 'sent').length,
+      })),
+    });
+  }),
+);
+
+/**
+ * Spend across every newsletter, for the Admin view. The unit is one edition
+ * run: an edition is generated once and then mailed to everyone, so per-run cost
+ * is what an owner can actually act on.
+ */
+app.get(
+  '/api/admin/costs',
+  route(async (_req, res) => {
+    const newsletters = await ctx.stores.newsletters.list();
+    const since = monthStartIso();
+
+    const rows = await Promise.all(
+      newsletters.map(async (newsletter) => {
+        const editions = await ctx.stores.editions.listByNewsletter(newsletter.id);
+        const thisMonth = editions.filter((edition) => edition.createdAt >= since);
+        const monthUsd = thisMonth.reduce((sum, edition) => sum + totalCost(edition.usage), 0);
+        return {
+          id: newsletter.id,
+          name: newsletter.name,
+          status: newsletter.status,
+          scheduled: Boolean(newsletter.schedule?.enabled),
+          editions: thisMonth.length,
+          monthUsd,
+          avgUsd: thisMonth.length ? monthUsd / thisMonth.length : 0,
+          allTimeEditions: editions.length,
+        };
+      }),
+    );
+
+    const monthToDateUsd = rows.reduce((sum, row) => sum + row.monthUsd, 0);
+    const editionCount = rows.reduce((sum, row) => sum + row.editions, 0);
+
+    res.json({
+      monthlyCapUsd: ctx.config.monthlyCapUsd,
+      monthToDateUsd,
+      editionCount,
+      avgPerEditionUsd: editionCount ? monthToDateUsd / editionCount : 0,
+      newsletters: rows.sort((a, b) => b.monthUsd - a.monthUsd),
+      providers: {
+        llm: ctx.config.llm,
+        model: ctx.config.modelWriter,
+        search: ctx.config.search,
+        email: ctx.config.email,
+        storage: ctx.config.storage,
+      },
+    });
   }),
 );
 
