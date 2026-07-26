@@ -5,6 +5,7 @@ import { MockSearchProvider } from './search/mock.js';
 import { TavilySearchProvider } from './search/tavily.js';
 import { BraveSearchProvider } from './search/brave.js';
 import { EmlFileEmailProvider } from './email/eml.js';
+import { GraphEmailProvider } from './email/graph.js';
 
 /**
  * Provider selection, driven entirely by environment variables.
@@ -76,10 +77,12 @@ export function createEmailProvider(env: NodeJS.ProcessEnv = process.env): Email
     case 'eml':
       return new EmlFileEmailProvider(env['OUTBOX_DIR'] ?? '.outbox');
     case 'graph':
-      throw new Error(
-        'The graph email provider is not wired up yet. It needs a tenant admin to grant Mail.Send ' +
-          'to the app identity and to scope it to contact@cawt.ai with an application access policy.',
-      );
+      return new GraphEmailProvider({
+        tenantId: env['AZURE_TENANT_ID'] ?? '',
+        clientId: env['GRAPH_CLIENT_ID'] ?? '',
+        clientSecret: env['GRAPH_CLIENT_SECRET'] ?? '',
+        sender: env['GRAPH_SENDER'] ?? 'contact@cawt.ai',
+      });
     default:
       throw new Error(`Unknown EMAIL_PROVIDER "${kind}". Expected one of: eml, graph.`);
   }
