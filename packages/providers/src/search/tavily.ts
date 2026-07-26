@@ -44,10 +44,16 @@ export class TavilySearchProvider implements SearchProvider {
         },
         body: JSON.stringify({
           query,
-          search_depth: 'basic',
+          // Advanced depth is worth the second credit here: the subject matter
+          // (private client, trusts, estate and succession law) lives on
+          // specialist outlets that a basic news search buries under mainstream
+          // politics and general business. Basic depth was returning topically
+          // irrelevant filler that scoring then correctly discarded, leaving
+          // whole regions empty.
+          search_depth: 'advanced',
           topic: 'news',
           max_results: perQuery,
-          days: Math.max(1, Math.ceil(request.maxAgeHours / 24)),
+          days: Math.max(2, Math.ceil(request.maxAgeHours / 24)),
           // Fuller article text so summaries and the fact-checker have real
           // source, not a one-line teaser. Still a basic (1-credit) search.
           include_raw_content: true,
