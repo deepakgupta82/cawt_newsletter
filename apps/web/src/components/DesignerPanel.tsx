@@ -51,6 +51,7 @@ function RichText({ text }: { text: string }) {
  */
 export function DesignerPanel({ newsletter, messages, onRefine, busy }: Props) {
   const [instruction, setInstruction] = useState('');
+  const [briefOpen, setBriefOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -77,9 +78,23 @@ export function DesignerPanel({ newsletter, messages, onRefine, busy }: Props) {
           </div>
           <div className="mt-3 rounded-lg bg-stone-50 p-3 ring-1 ring-inset ring-stone-200/70">
             <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.09em] text-stone-400">Brief</p>
-            <div className="text-[13px] leading-6 text-stone-700">
+            <div
+              className={cx(
+                'relative text-[13px] leading-6 text-stone-700',
+                !briefOpen && 'max-h-[4.5rem] overflow-hidden',
+              )}
+            >
               <RichText text={newsletter.brief.text} />
+              {!briefOpen && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-stone-50 to-transparent" />
+              )}
             </div>
+            <button
+              onClick={() => setBriefOpen((open) => !open)}
+              className="mt-1 text-[11px] font-medium text-teal-700 hover:text-teal-800"
+            >
+              {briefOpen ? 'Show less' : 'Show more'}
+            </button>
           </div>
         </div>
       </div>
@@ -135,16 +150,14 @@ export function DesignerPanel({ newsletter, messages, onRefine, busy }: Props) {
 
       {/* Composer */}
       <div className="shrink-0 border-t border-stone-200 bg-white p-3">
-        <p className="mb-1.5 px-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-400">
-          Quick changes
-        </p>
-        <div className="mb-2.5 flex flex-wrap gap-1.5">
+        <div className="mb-2 flex items-center gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-400">Quick</span>
           {QUICK_EDITS.map((quick) => (
             <button
               key={quick}
               onClick={() => submit(quick)}
               disabled={busy}
-              className="rounded-full border border-stone-200 bg-white px-2.5 py-1 text-[11.5px] text-stone-600 transition-colors hover:border-teal-300 hover:bg-teal-50 hover:text-teal-800 disabled:opacity-50"
+              className="shrink-0 whitespace-nowrap rounded-full border border-stone-200 bg-white px-2.5 py-1 text-[11.5px] text-stone-600 transition-colors hover:border-teal-300 hover:bg-teal-50 hover:text-teal-800 disabled:opacity-50"
             >
               {quick}
             </button>

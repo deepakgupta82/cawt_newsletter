@@ -92,6 +92,18 @@ export const newsletterSchema = z.object({
   recipientGroupId: z.string().nullable().default(null),
   brandId: z.string().default('default'),
   approvalPolicy: approvalPolicySchema.default('author_sends'),
+  /**
+   * Editors who review a scheduled draft. They receive the preview email with
+   * Approve / Edit actions and are the people trusted to publish. Distinct from
+   * recipients, who receive the finished newsletter.
+   */
+  reviewers: z.array(z.string().email()).default([]),
+  /**
+   * When true, a scheduled draft is sent to the recipient list without waiting
+   * for a human. Off by default: every edition holds for review until an editor
+   * publishes it. Turn on per newsletter once its output is trusted.
+   */
+  autoPublish: z.boolean().default(false),
   sourcePolicy: z
     .object({
       preferredDomains: z.array(z.string()).default([]),

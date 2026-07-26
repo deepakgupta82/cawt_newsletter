@@ -1,7 +1,11 @@
 import parser from 'cron-parser';
-import { newsletterSchema, nowIso } from '@cawt/domain';
+import { newsletterSchema, nowIso, type Edition, type Newsletter } from '@cawt/domain';
 import { generateEdition, totalCost } from '@cawt/core';
-import type { AppContext } from './context.js';
+import { renderEditionHtml } from '@cawt/render';
+import { appBaseUrl, DEFAULT_BRAND, type AppContext } from './context.js';
+import { activeRecipients, publishEdition } from './publish.js';
+import { signApproval } from './tokens.js';
+import { renderReviewEmail } from './review-email.js';
 
 /**
  * In-process scheduler.
@@ -11,9 +15,11 @@ import type { AppContext } from './context.js';
  * "were you due since you last ran?" and runs the ones that were. A per-slot
  * lastRunAt guard means a restart or an overlapping tick never double-fires.
  *
- * Sending is deliberately not wired here yet: a scheduled run generates and
- * stores the edition (visible under History) for review. Once the mailbox is
- * connected, the send step slots in right after the edition is saved.
+ * A due slot generates a fresh edition, then follows the newsletter's policy:
+ * autoPublish sends it to the recipient list immediately; otherwise it is held
+ * as ready_for_review and a preview email with Approve / Edit actions goes to
+ * the reviewers. Nothing reaches recipients without a human unless autoPublish
+ * is explicitly turned on for that newsletter.
  */
 
 const TICK_MS = 60_000;
@@ -34,6 +40,41 @@ async function stampSlot(ctx: AppContext, newsletter: Parameters<typeof newslett
   await ctx.stores.newsletters.save(
     newsletterSchema.parse({ ...parsed, schedule: { ...parsed.schedule, lastRunAt: slot }, updatedAt: nowIso() }),
   );
+}
+
+/** Emails each reviewer the draft with Approve / Edit actions. */
+async function notifyReviewers(ctx: AppContext, newsletter: Newsletter, edition: Edition): Promise<void> {
+  if (newsletter.reviewers.length === 0) {
+    console.log(`[scheduler] ${newsletter.name}: draft ${edition.id} ready, no reviewers set (waiting in app)`);
+    return;
+  }
+  const brand = (await ctx.stores.brands.get(newsletter.brandId)) ?? DEFAULT_BRAND;
+  const recipientCount = (await activeRecipients(ctx, newsletter)).length;
+  const html = renderEditionHtml(edition, {
+    brand,
+    unsubscribeUrl: `mailto:${brand.contactAddress}?subject=unsubscribe`,
+  });
+  const base = appBaseUrl();
+  const editUrl = `${base}/?newsletter=${newsletter.id}`;
+
+  for (const reviewer of newsletter.reviewers) {
+    const approveUrl = `${base}/api/approve?token=${signApproval(edition.id)}`;
+    const reviewHtml = renderReviewEmail({ newsletterName: newsletter.name, editionHtml: html, approveUrl, editUrl, recipientCount });
+    try {
+      await ctx.email.send({
+        to: reviewer,
+        fromAddress: brand.contactAddress,
+        fromName: brand.name,
+        replyTo: brand.contactAddress,
+        subject: `[Review] ${edition.subject}`,
+        html: reviewHtml,
+        text: `A scheduled draft of "${newsletter.name}" is ready to review.\nApprove & send: ${approveUrl}\nEdit in app: ${editUrl}`,
+      });
+    } catch (error) {
+      console.error(`[scheduler] ${newsletter.name}: failed to email reviewer ${reviewer}`, error);
+    }
+  }
+  console.log(`[scheduler] ${newsletter.name}: emailed ${newsletter.reviewers.length} reviewer(s) for ${edition.id}`);
 }
 
 async function runDue(ctx: AppContext, now: Date): Promise<void> {
@@ -64,11 +105,19 @@ async function runDue(ctx: AppContext, now: Date): Promise<void> {
         preferredDomains: newsletter.sourcePolicy.preferredDomains,
         blockedDomains: newsletter.sourcePolicy.blockedDomains,
       });
-      await ctx.stores.editions.save(edition);
+      // Hold for review unless the newsletter is trusted to auto-publish.
+      const draft: Edition = { ...edition, status: newsletter.autoPublish ? edition.status : 'ready_for_review' };
+      await ctx.stores.editions.save(draft);
       console.log(
-        `[scheduler] ${newsletter.name}: generated ${edition.id} for slot ${slot} ($${totalCost(edition.usage).toFixed(4)})`,
+        `[scheduler] ${newsletter.name}: generated ${draft.id} for slot ${slot} ($${totalCost(draft.usage).toFixed(4)})`,
       );
-      // TODO: send to the recipient group here once the Graph mailbox is connected.
+
+      if (newsletter.autoPublish) {
+        const outcome = await publishEdition(ctx, draft.id, { actor: 'auto-publish' });
+        console.log(`[scheduler] ${newsletter.name}: auto-published ${draft.id} -> ${outcome.status} (${outcome.sent} sent, ${outcome.failed} failed)`);
+      } else {
+        await notifyReviewers(ctx, newsletter, draft);
+      }
     } catch (error) {
       console.error(`[scheduler] ${newsletter.name}: run failed`, error);
     } finally {

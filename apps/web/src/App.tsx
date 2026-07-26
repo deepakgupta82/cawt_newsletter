@@ -108,6 +108,17 @@ export default function App() {
     setMessages(thread);
   }, []);
 
+  // Deep link from the review email's Edit button: /?newsletter=<id> opens it.
+  const deepLinked = useRef(false);
+  useEffect(() => {
+    if (!session || deepLinked.current) return;
+    const id = new URLSearchParams(window.location.search).get('newsletter');
+    if (!id) return;
+    deepLinked.current = true;
+    void open(id).catch(() => undefined);
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [session, open]);
+
   const openEdition = useCallback(async (editionId: string) => {
     try {
       setEdition(await api.getEdition(editionId));

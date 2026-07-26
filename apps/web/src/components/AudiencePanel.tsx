@@ -72,6 +72,11 @@ export function AudiencePanel({ newsletter, onNewsletterChange }: Props) {
   );
   const [savingSchedule, setSavingSchedule] = useState(false);
 
+  const [reviewers, setReviewers] = useState<string[]>(newsletter.reviewers ?? []);
+  const [reviewerInput, setReviewerInput] = useState('');
+  const [autoPublish, setAutoPublish] = useState(newsletter.autoPublish ?? false);
+  const [savingReview, setSavingReview] = useState(false);
+
   useEffect(() => {
     setLoading(true);
     api
@@ -101,6 +106,31 @@ export function AudiencePanel({ newsletter, onNewsletterChange }: Props) {
 
   const remove = async (id: string) => {
     setRecipients(await api.removeRecipient(newsletter.id, id));
+  };
+
+  const saveReview = async (nextReviewers = reviewers, nextAuto = autoPublish) => {
+    setSavingReview(true);
+    setNotice(null);
+    try {
+      const updated = await api.updateNewsletter(newsletter.id, { reviewers: nextReviewers, autoPublish: nextAuto });
+      onNewsletterChange(updated);
+      setReviewers(updated.reviewers);
+      setAutoPublish(updated.autoPublish);
+      setNotice('Review settings saved.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not save review settings');
+    } finally {
+      setSavingReview(false);
+    }
+  };
+
+  const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+  const addReviewer = () => {
+    const email = reviewerInput.trim().toLowerCase();
+    setReviewerInput('');
+    if (!isEmail(email) || reviewers.includes(email)) return;
+    void saveReview([...reviewers, email], autoPublish);
   };
 
   const saveSchedule = async (nextEnabled = enabled) => {
@@ -289,9 +319,76 @@ export function AudiencePanel({ newsletter, onNewsletterChange }: Props) {
         </div>
 
         <p className="mt-2 text-[11.5px] leading-relaxed text-stone-400">
-          Editions are generated for review. Automated sending to the recipient list needs the mailbox connection
-          (contact@cawt.ai via Graph), which is a separate one-time setup.
+          Each scheduled run generates a draft. By default it waits for a reviewer to approve before it reaches
+          recipients; turn on auto-publish below to send without waiting.
         </p>
+      </section>
+
+      {/* Review & sending */}
+      <section>
+        <h3 className="text-[15px] font-semibold text-stone-900">Review &amp; sending</h3>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-stone-500">
+          Reviewers approve a scheduled draft before it goes out. They receive a preview email with Approve and Edit
+          buttons. Recipients (above) are who the finished newsletter is sent to; reviewers are who signs it off.
+        </p>
+
+        <div className="mt-3 space-y-4 rounded-xl border border-stone-200 bg-white p-4">
+          <div>
+            <p className="text-[12.5px] font-medium text-stone-700">Reviewers</p>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={reviewerInput}
+                onChange={(event) => setReviewerInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addReviewer();
+                  }
+                }}
+                placeholder="editor@cawt.ai"
+                className="flex-1 rounded-md border border-stone-200 px-2.5 py-1.5 text-[13px] text-stone-800 outline-none focus:border-stone-400"
+              />
+              <Button variant="secondary" size="sm" onClick={addReviewer} loading={savingReview} disabled={!reviewerInput.trim()}>
+                Add
+              </Button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {reviewers.length === 0 ? (
+                <span className="text-[11.5px] text-stone-400">No reviewers yet. Add at least one to receive drafts.</span>
+              ) : (
+                reviewers.map((email) => (
+                  <span
+                    key={email}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 py-1 pl-2.5 pr-1.5 text-[12px] text-stone-700"
+                  >
+                    {email}
+                    <button
+                      onClick={() => void saveReview(reviewers.filter((r) => r !== email), autoPublish)}
+                      className="rounded-full px-1 text-stone-400 hover:bg-red-50 hover:text-red-700"
+                      aria-label={`Remove ${email}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
+
+          <label className="flex items-start gap-3 border-t border-stone-100 pt-3">
+            <input
+              type="checkbox"
+              checked={autoPublish}
+              onChange={(event) => void saveReview(reviewers, event.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-teal-700"
+            />
+            <span className="text-[12.5px] leading-relaxed text-stone-600">
+              <span className="font-medium text-stone-800">Auto-publish this newsletter</span>
+              <br />
+              Skip review and send each scheduled edition straight to recipients. Leave off until you trust the output.
+            </span>
+          </label>
+        </div>
       </section>
     </div>
   );

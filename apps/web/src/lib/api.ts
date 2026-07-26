@@ -40,8 +40,10 @@ export const api = {
       body: JSON.stringify({ instruction }),
     }),
 
-  updateNewsletter: (id: string, patch: Partial<Pick<Newsletter, 'name' | 'status' | 'schedule'>>) =>
-    request<Newsletter>(`/api/newsletters/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  updateNewsletter: (
+    id: string,
+    patch: Partial<Pick<Newsletter, 'name' | 'status' | 'schedule' | 'reviewers' | 'autoPublish'>>,
+  ) => request<Newsletter>(`/api/newsletters/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
 
   recipients: (id: string) => request<Recipient[]>(`/api/newsletters/${id}/recipients`),
 
@@ -71,6 +73,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ to }),
     }),
+
+  publish: (editionId: string, actor?: string) =>
+    request<{ status: string; sent: number; failed: number; recipientCount: number }>(
+      `/api/editions/${editionId}/publish`,
+      { method: 'POST', body: JSON.stringify({ actor }) },
+    ),
 
   social: (editionId: string) =>
     request<{ post: string; diagramPrompt: string; charCount: number; cost: number }>(

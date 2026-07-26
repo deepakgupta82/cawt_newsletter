@@ -20,9 +20,12 @@ import {
 } from '@cawt/domain';
 import { composeSocial, design, generateEdition, totalCost } from '@cawt/core';
 import { renderEditionHtml, renderEditionText } from '@cawt/render';
-import { createContext, DEFAULT_BRAND, loadEnv, type AppContext } from './context.js';
+import { appBaseUrl, createContext, DEFAULT_BRAND, loadEnv, type AppContext } from './context.js';
 import { normaliseSample } from './sample.js';
 import { startScheduler } from './scheduler.js';
+import { publishEdition } from './publish.js';
+import { verifyApproval } from './tokens.js';
+import { confirmPage, resultPage } from './approve-pages.js';
 
 await loadEnv();
 const ctx: AppContext = await createContext();
@@ -30,6 +33,8 @@ const ctx: AppContext = await createContext();
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
+// The emailed Approve confirm page posts a form, not JSON.
+app.use(express.urlencoded({ extended: false }));
 
 /** Wraps an async handler so a rejection becomes a 500 rather than a hang. */
 const route =
@@ -175,6 +180,8 @@ const patchSchema = z.object({
   blueprint: blueprintSchema.optional(),
   schedule: scheduleSchema.nullable().optional(),
   status: z.enum(['draft', 'active', 'paused', 'archived']).optional(),
+  reviewers: z.array(z.string().email()).max(20).optional(),
+  autoPublish: z.boolean().optional(),
 });
 
 /** Direct edits. Anything the user sets by hand is marked as supplied. */
@@ -207,6 +214,8 @@ app.patch(
       ...(patch.brief ? { brief: { text: patch.brief, updatedAt: nowIso() } } : {}),
       ...(patch.status ? { status: patch.status } : {}),
       ...(patch.schedule !== undefined ? { schedule } : {}),
+      ...(patch.reviewers !== undefined ? { reviewers: patch.reviewers } : {}),
+      ...(patch.autoPublish !== undefined ? { autoPublish: patch.autoPublish } : {}),
       blueprint,
       updatedAt: nowIso(),
     });
@@ -497,6 +506,103 @@ app.post(
     );
 
     return res.json({ ...result, provider: ctx.email.name });
+  }),
+);
+
+/**
+ * Publish now: send this edition to the newsletter's recipient list. Used by the
+ * Publish button in the app. The scheduler and the emailed Approve action reach
+ * the same publishEdition path, so all three behave identically.
+ */
+app.post(
+  '/api/editions/:id/publish',
+  route(async (req, res) => {
+    const { actor } = z.object({ actor: z.string().optional() }).parse(req.body ?? {});
+    const outcome = await publishEdition(ctx, param(req, 'id'), { actor: actor || 'app' });
+    if (outcome.status === 'not_found') return res.status(404).json({ error: 'Edition not found' });
+    if (outcome.status === 'no_recipients') {
+      return res.status(400).json({ error: 'No active recipients. Add recipients before publishing.' });
+    }
+    return res.json(outcome);
+  }),
+);
+
+const editLinkFor = (newsletterId: string): string => `${appBaseUrl()}/?newsletter=${newsletterId}`;
+
+/** Confirm page for the emailed Approve link. GET has no side effect, so a mail
+ *  client prefetching the link cannot trigger a send; the confirm posts below. */
+app.get(
+  '/api/approve',
+  route(async (req, res) => {
+    const token = String(req.query['token'] ?? '');
+    const verified = verifyApproval(token);
+    if (!verified) {
+      res
+        .status(400)
+        .type('html')
+        .send(resultPage('Link expired', 'This approval link is invalid or has expired. Open the app to review and send.'));
+      return;
+    }
+    const edition = await ctx.stores.editions.get(verified.editionId);
+    if (!edition) {
+      res.status(404).type('html').send(resultPage('Not found', 'That edition no longer exists.'));
+      return;
+    }
+    const newsletter = await ctx.stores.newsletters.get(edition.newsletterId);
+    const editUrl = editLinkFor(edition.newsletterId);
+    if (edition.status === 'sent') {
+      res.type('html').send(resultPage('Already sent', 'This edition has already been published.', editUrl));
+      return;
+    }
+    const recipientCount = newsletter
+      ? (await recipientsFor(newsletter)).filter((r) => r.status === 'active').length
+      : 0;
+    res.type('html').send(
+      confirmPage({
+        newsletterName: newsletter?.name ?? 'Newsletter',
+        subject: edition.subject,
+        recipientCount,
+        token,
+        editUrl,
+      }),
+    );
+  }),
+);
+
+/** The confirm form posts here; this is what actually sends. */
+app.post(
+  '/api/approve',
+  route(async (req, res) => {
+    const token = String((req.body as { token?: string })?.token ?? req.query['token'] ?? '');
+    const verified = verifyApproval(token);
+    if (!verified) {
+      res.status(400).type('html').send(resultPage('Link expired', 'This approval link is invalid or has expired.'));
+      return;
+    }
+    const outcome = await publishEdition(ctx, verified.editionId, { actor: 'email-approval' });
+    const editUrl = outcome.newsletter
+      ? editLinkFor(outcome.newsletter.id)
+      : outcome.edition
+        ? editLinkFor(outcome.edition.newsletterId)
+        : undefined;
+    if (outcome.status === 'not_found') {
+      res.status(404).type('html').send(resultPage('Not found', 'That edition no longer exists.'));
+      return;
+    }
+    if (outcome.status === 'already_sent') {
+      res.type('html').send(resultPage('Already sent', 'This edition was already published.', editUrl));
+      return;
+    }
+    if (outcome.status === 'no_recipients') {
+      res.status(400).type('html').send(resultPage('No recipients', 'Add recipients in the app before sending.', editUrl));
+      return;
+    }
+    const failedNote = outcome.failed ? `, ${outcome.failed} failed` : '';
+    res
+      .type('html')
+      .send(
+        resultPage('Sent', `Published to ${outcome.sent} recipient${outcome.sent === 1 ? '' : 's'}${failedNote}.`, editUrl),
+      );
   }),
 );
 

@@ -43,6 +43,11 @@ export const DEFAULT_BRAND: Brand = brandSchema.parse({
   disclaimer: 'Automated digest. Verify facts before relying on them.',
 });
 
+/** Public base URL of the deployed app, used to build links in review emails. */
+export function appBaseUrl(): string {
+  return (process.env['APP_BASE_URL'] ?? `http://localhost:${process.env['API_PORT'] ?? 7071}`).replace(/\/$/, '');
+}
+
 /** Loads .env.local into process.env without pulling in a dependency. */
 export async function loadEnv(): Promise<void> {
   for (const file of ['.env.local', '.env']) {

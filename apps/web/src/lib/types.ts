@@ -76,6 +76,8 @@ export interface Newsletter {
   blueprint: Blueprint;
   schedule: { cron: string; timezone: string; enabled: boolean } | null;
   recipientGroupId: string | null;
+  reviewers: string[];
+  autoPublish: boolean;
   updatedAt: string;
 }
 
@@ -118,16 +120,28 @@ export type EditionBlock =
   | { type: 'section'; id: string; heading: string; lead?: string; children: EditionLeafBlock[] }
   | EditionLeafBlock;
 
+export type EditionStatus =
+  | 'draft'
+  | 'ready_for_review'
+  | 'changes_requested'
+  | 'approved'
+  | 'sending'
+  | 'sent'
+  | 'failed'
+  | 'cancelled';
+
 export interface Edition {
   id: string;
   newsletterId: string;
   blueprintVersion: number;
+  status: EditionStatus;
   title: string;
   subject: string;
   blocks: EditionBlock[];
   warnings: string[];
   usage: Array<{ operation: string; model?: string; inputTokens: number; outputTokens: number; estimatedCostUsd: number }>;
   createdAt: string;
+  sentAt?: string;
 }
 
 export interface Recipient {

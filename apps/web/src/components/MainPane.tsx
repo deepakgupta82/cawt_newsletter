@@ -105,6 +105,8 @@ export function MainPane({
   const [tab, setTab] = useState<Tab>('preview');
   const [testTo, setTestTo] = useState('reviewer@cawt.ai');
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<string | null>(null);
   const [social, setSocial] = useState<Social | null>(null);
   const [postDraft, setPostDraft] = useState('');
   const [socialBusy, setSocialBusy] = useState(false);
@@ -192,6 +194,34 @@ export function MainPane({
       setSentRefresh((count) => count + 1);
     } catch (error) {
       setTestResult(error instanceof Error ? error.message : 'Send failed');
+    }
+  };
+
+  const publish = async () => {
+    if (!edition) return;
+    if (edition.status === 'sent') {
+      setPublishResult('This edition was already published.');
+      return;
+    }
+    if (!window.confirm('Publish this edition to the recipient list now? This sends real email to everyone on the list.')) {
+      return;
+    }
+    setPublishing(true);
+    setPublishResult(null);
+    try {
+      const result = await api.publish(edition.id);
+      if (result.status === 'no_recipients') {
+        setPublishResult('No active recipients. Add recipients in the Audience tab first.');
+      } else if (result.status === 'already_sent') {
+        setPublishResult('This edition was already published.');
+      } else {
+        setPublishResult(`Published to ${result.sent} recipient${result.sent === 1 ? '' : 's'}${result.failed ? `, ${result.failed} failed` : ''}.`);
+      }
+      setSentRefresh((count) => count + 1);
+    } catch (error) {
+      setPublishResult(error instanceof Error ? error.message : 'Publish failed');
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -284,6 +314,18 @@ export function MainPane({
                     Send test
                   </Button>
                   {testResult && <span className="truncate text-[11.5px] text-stone-500">{testResult}</span>}
+                  <div className="ml-auto flex items-center gap-2">
+                    {publishResult && <span className="truncate text-[11.5px] text-stone-500">{publishResult}</span>}
+                    {edition.status === 'sent' ? (
+                      <span className="rounded-md bg-teal-50 px-2.5 py-1 text-[11.5px] font-medium text-teal-700 ring-1 ring-inset ring-teal-200">
+                        Published
+                      </span>
+                    ) : (
+                      <Button variant="primary" size="sm" onClick={() => void publish()} loading={publishing}>
+                        Publish to recipients
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </>
             ) : (
