@@ -113,7 +113,7 @@ export function OverviewPanel({ newsletter, refreshKey, onOpenEdition, onGoto, o
                 you publish it.
               </p>
               <Button variant="primary" className="mt-4" onClick={() => void onRun()} loading={running}>
-                Run against live news
+                Create today's edition
               </Button>
             </div>
           ) : (

@@ -145,7 +145,7 @@ export function EditionPanel({ newsletter, edition, onRun, running, onSent, onEd
           you publish.
         </p>
         <Button variant="primary" className="mt-5" onClick={() => void onRun()} loading={running}>
-          Run against live news
+          Create today's edition
         </Button>
       </div>
     );
