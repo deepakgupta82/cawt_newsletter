@@ -125,23 +125,38 @@ export function AdminPanel({ onOpenNewsletter }: Props) {
         </div>
       )}
 
-      <h3 className="mb-2 mt-6 text-[14px] font-semibold text-stone-900">Providers in use</h3>
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-3">
-        <Pill tone={data.providers.llm === 'mock' ? 'mock' : 'live'}>
-          model {data.providers.llm === 'mock' ? 'mock' : data.providers.model}
-        </Pill>
-        <Pill tone={data.providers.search === 'mock' ? 'mock' : 'live'}>search {data.providers.search}</Pill>
-        <Pill tone={data.providers.email === 'eml' ? 'mock' : 'live'}>email {data.providers.email}</Pill>
-        <Pill>storage {data.providers.storage}</Pill>
-        <span className="ml-auto text-[11.5px] text-stone-400">
-          Set in the app's configuration, not per newsletter.
-        </span>
+      <h3 className="mb-2 mt-6 text-[14px] font-semibold text-stone-900">System status</h3>
+      <div className="divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200 bg-white">
+        {[
+          {
+            label: 'Writing the newsletters',
+            ok: data.providers.llm !== 'mock',
+            good: 'Live',
+            bad: 'Demonstration mode',
+          },
+          {
+            label: 'Finding the news',
+            ok: data.providers.search !== 'mock',
+            good: 'Live',
+            bad: 'Sample articles only',
+          },
+          {
+            label: 'Sending email',
+            ok: data.providers.email !== 'eml',
+            good: 'Live, from contact@cawt.ai',
+            bad: 'Saved to a file, not sent',
+          },
+        ].map((row) => (
+          <div key={row.label} className="flex items-center justify-between gap-3 px-4 py-2.5">
+            <span className="text-[13px] text-stone-700">{row.label}</span>
+            <Pill tone={row.ok ? 'live' : 'mock'}>{row.ok ? row.good : row.bad}</Pill>
+          </div>
+        ))}
       </div>
 
       <p className="mt-4 text-[11.5px] leading-relaxed text-stone-400">
-        Search credits are billed by the provider separately and are not included above. To bring a newsletter's cost
-        down, widen its freshness window (fewer runs finding nothing), reduce max items per section, or lower its
-        cadence.
+        News-search charges are billed separately and are not included above. To reduce what a newsletter costs, have it
+        cover a longer period, carry fewer items per section, or go out less often. All three are on its Design tab.
       </p>
     </div>
   );

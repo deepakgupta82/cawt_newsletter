@@ -43,8 +43,8 @@ export function StartScreen({ onCreate, busy, error }: Props) {
         Describe the newsletter you want.
       </h1>
       <p className="mt-2 text-[15px] leading-relaxed text-stone-500">
-        Write it however you like. The structure, sections, freshness windows and item lengths are worked out for you,
-        then shown as a draft you can change.
+        Write it however you like, in plain English. The sections, how recent the news should be and how long each item
+        runs are worked out for you, then shown as a draft you can change.
       </p>
 
       <div className="mt-7 inline-flex self-start rounded-lg border border-stone-200 bg-white p-0.5">

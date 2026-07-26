@@ -50,6 +50,8 @@ export const api = {
     },
   ) => request<Newsletter>(`/api/newsletters/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
 
+  deleteNewsletter: (id: string) => request<{ deleted: string }>(`/api/newsletters/${id}`, { method: 'DELETE' }),
+
   summary: (id: string) => request<NewsletterSummaryStats>(`/api/newsletters/${id}/summary`),
 
   adminCosts: () => request<AdminCosts>('/api/admin/costs'),

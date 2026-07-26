@@ -3,6 +3,7 @@ import type { Edition, Newsletter } from '../lib/types';
 import { api } from '../lib/api';
 import { collectStories, editionState, formatWhen } from '../lib/edition';
 import { Button, cx, EmptyHint } from './ui';
+import { ConfirmDialog } from './ConfirmDialog';
 import { LinkedInEditor } from './LinkedInEditor';
 
 const LINKEDIN_LIMIT = 3000;
@@ -41,10 +42,24 @@ export function EditionPanel({ newsletter, edition, onRun, running, onSent, onEd
   const [socialBusy, setSocialBusy] = useState(false);
   const [socialError, setSocialError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [recipientCount, setRecipientCount] = useState<number | null>(null);
 
   const stories = edition ? collectStories(edition) : [];
   const flagged = stories.filter((story) => (story.warnings?.length ?? 0) > 0);
   const editionWarnings = edition?.warnings ?? [];
+
+  // How many people Publish would actually reach, so the confirmation can say so.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .recipients(newsletter.id)
+      .then((list) => !cancelled && setRecipientCount(list.filter((r) => r.status === 'active').length))
+      .catch(() => !cancelled && setRecipientCount(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [newsletter.id]);
 
   // A fresh edition invalidates anything built from the previous one.
   useEffect(() => {
@@ -70,13 +85,7 @@ export function EditionPanel({ newsletter, edition, onRun, running, onSent, onEd
 
   const publish = async () => {
     if (!edition) return;
-    if (
-      !window.confirm(
-        'Publish this edition to the recipient list now? This sends real email to everyone on the list.',
-      )
-    ) {
-      return;
-    }
+    setConfirmOpen(false);
     setPublishing(true);
     setPublishResult(null);
     try {
@@ -348,12 +357,30 @@ export function EditionPanel({ newsletter, edition, onRun, running, onSent, onEd
               Published
             </span>
           ) : (
-            <Button variant="primary" size="sm" onClick={() => void publish()} loading={publishing}>
-              Publish to recipients
+            <Button variant="primary" size="sm" onClick={() => setConfirmOpen(true)} loading={publishing}>
+              Send to everyone
             </Button>
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Send this newsletter?"
+        body={
+          recipientCount === null
+            ? 'This will email the newsletter to everyone on the recipient list. It cannot be undone.'
+            : recipientCount === 0
+              ? 'There is nobody on the recipient list yet. Add recipients in the Audience tab first.'
+              : `This will email "${edition.subject}" to ${recipientCount} ${
+                  recipientCount === 1 ? 'person' : 'people'
+                } on the recipient list. It cannot be undone.`
+        }
+        confirmLabel={recipientCount === 0 ? 'Send anyway' : 'Yes, send it'}
+        busy={publishing}
+        onConfirm={() => void publish()}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }

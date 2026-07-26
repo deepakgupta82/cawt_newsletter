@@ -11,7 +11,8 @@ import { SentPanel } from './components/SentPanel';
 import { AdminPanel } from './components/AdminPanel';
 import { LoginScreen, type Session } from './components/LoginScreen';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { Button, cx } from './components/ui';
+import { ConfirmDialog } from './components/ConfirmDialog';
+import { Button, cx, Spinner } from './components/ui';
 
 const SESSION_KEY = 'cawt.session';
 const RAIL_KEY = 'cawt.railOpen';
@@ -88,6 +89,22 @@ export default function App() {
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem(RAIL_KEY) !== 'false');
   const [filter, setFilter] = useState('');
   const [userMenu, setUserMenu] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Building an edition takes the better part of a minute: it searches, reads
+  // and writes every section. Without a visible clock that reads as a hang.
+  useEffect(() => {
+    if (!running) {
+      setElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    const timer = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
 
   useEffect(() => {
     if (!session) return;
@@ -189,6 +206,36 @@ export default function App() {
     }
   }, [active]);
 
+  const saveName = async () => {
+    if (!active || !nameDraft?.trim()) return;
+    try {
+      const updated = await api.updateNewsletter(active.id, { name: nameDraft.trim() });
+      setActive(updated);
+      setList(await api.listNewsletters());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not rename');
+    } finally {
+      setNameDraft(null);
+    }
+  };
+
+  const removeNewsletter = async () => {
+    if (!active) return;
+    setDeleting(true);
+    try {
+      await api.deleteNewsletter(active.id);
+      setActive(null);
+      setEdition(null);
+      setMessages([]);
+      setList(await api.listNewsletters());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not delete');
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem(SESSION_KEY);
     setSession(null);
@@ -287,9 +334,7 @@ export default function App() {
                   )}
                 >
                   <span className="truncate text-[12.5px] font-medium">{item.name}</span>
-                  <span className="text-[10.5px] text-slate-500">
-                    v{item.blueprintVersion} &middot; {item.status}
-                  </span>
+                  <span className="text-[10.5px] capitalize text-slate-500">{item.status}</span>
                 </button>
               ))
             )}
@@ -311,8 +356,7 @@ export default function App() {
             </button>
             <div className="flex items-center gap-2 px-3 pb-1 pt-2 text-[11px] text-slate-400">
               <span className={cx('h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-400 animate-pulse-soft' : 'bg-sky-400')} />
-              {live ? 'Live models' : 'Local mocks'}
-              {live && <span className="ml-auto text-slate-500">South India</span>}
+              {live ? 'Live' : 'Demonstration mode'}
             </div>
           </div>
         </aside>
@@ -342,7 +386,7 @@ export default function App() {
           </button>
           <span
             className={cx('mt-auto h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-400 animate-pulse-soft' : 'bg-sky-400')}
-            title={live ? 'Live models' : 'Local mocks'}
+            title={live ? 'Live' : 'Demonstration mode'}
           />
         </aside>
       )}
@@ -352,6 +396,30 @@ export default function App() {
         <header className="shrink-0 border-b border-line bg-white px-6 pt-4">
           <div className="flex flex-wrap items-start gap-4">
             <div className="min-w-0 flex-1">
+              {nameDraft !== null && active ? (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void saveName();
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <input
+                    autoFocus
+                    value={nameDraft}
+                    onChange={(event) => setNameDraft(event.target.value)}
+                    onKeyDown={(event) => event.key === 'Escape' && setNameDraft(null)}
+                    aria-label="Newsletter name"
+                    className="min-w-0 flex-1 rounded-lg border border-stone-300 px-2.5 py-1 text-[17px] font-semibold text-ink outline-none focus:border-teal-500"
+                  />
+                  <Button size="sm" variant="primary" type="submit" disabled={!nameDraft.trim()}>
+                    Save
+                  </Button>
+                  <Button size="sm" type="button" onClick={() => setNameDraft(null)}>
+                    Cancel
+                  </Button>
+                </form>
+              ) : (
               <h1 className="truncate text-[18px] font-semibold leading-tight tracking-[-0.01em] text-ink">
                 {showAdmin
                   ? 'Admin & costs'
@@ -360,7 +428,18 @@ export default function App() {
                     : startMode
                       ? 'New newsletter'
                       : 'Newsletter Studio'}
+                {active && !showAdmin && (
+                  <button
+                    onClick={() => setNameDraft(active.name)}
+                    title="Rename"
+                    aria-label="Rename newsletter"
+                    className="ml-2 align-middle text-stone-300 transition-colors hover:text-stone-600"
+                  >
+                    <Icon path="M4 20h4l10-10-4-4L4 16v4zM14 6l4 4" className="inline h-4 w-4" />
+                  </button>
+                )}
               </h1>
+              )}
               {active && !showAdmin ? (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   <Chip
@@ -368,23 +447,23 @@ export default function App() {
                     onClick={() => setTab('audience')}
                     title={
                       active.schedule?.enabled
-                        ? `${active.schedule.cron} (${active.schedule.timezone})`
-                        : 'Set a delivery schedule'
+                        ? `Sends automatically (${active.schedule.timezone})`
+                        : 'Choose how often this goes out'
                     }
                   >
                     <Icon path="M12 7v5l3 2M12 21a9 9 0 100-18 9 9 0 000 18z" className="h-3 w-3" />
                     {cadence ?? 'Not scheduled'}
                   </Chip>
                   <Chip onClick={() => setTab('audience')}>
-                    {active.autoPublish ? 'Auto-publishes' : 'Approval required'}
+                    {active.autoPublish ? 'Sends without approval' : 'Needs your approval'}
                   </Chip>
-                  <Chip tone="muted">Blueprint v{active.blueprint.version}</Chip>
+                  
                 </div>
               ) : (
                 <p className="mt-1 text-[12.5px] text-muted">
                   {showAdmin
                     ? 'What each newsletter costs to run'
-                    : 'Prompt-driven authoring for CapAlpha WhiteTrust'}
+                    : 'Newsletters for CapAlpha WhiteTrust'}
                 </p>
               )}
             </div>
@@ -392,13 +471,23 @@ export default function App() {
             <div className="flex items-center gap-2">
               {active && !showAdmin && (
                 <Button size="sm" onClick={() => void run()} loading={running}>
-                  {edition ? 'Run again' : 'Run against live news'}
+                  {edition ? 'Create a new edition' : "Create today's edition"}
                 </Button>
               )}
               {active && !showAdmin && edition && edition.status !== 'sent' && (
                 <Button variant="primary" size="sm" onClick={() => setTab('edition')}>
-                  Review &amp; publish
+                  Review &amp; send
                 </Button>
+              )}
+              {active && !showAdmin && (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  title="Delete this newsletter"
+                  aria-label="Delete this newsletter"
+                  className="rounded-lg border border-line px-2 py-2 text-stone-400 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                >
+                  <Icon path="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" className="h-4 w-4" />
+                </button>
               )}
 
               <div className="relative ml-1">
@@ -461,8 +550,18 @@ export default function App() {
 
         {usingMocks && (
           <div className="shrink-0 border-b border-sky-200 bg-sky-50 px-6 py-1.5 text-[12px] text-sky-800">
-            Running on local mocks. No provider is being billed, no email leaves this machine, and results are identical
-            on every run.
+            Demonstration mode: sample content, nothing is charged and no email leaves this machine.
+          </div>
+        )}
+
+        {running && (
+          <div className="flex shrink-0 items-center gap-3 border-b border-teal-200 bg-accent-soft px-6 py-2 text-[12.5px] text-teal-900">
+            <Spinner className="text-teal-700" />
+            <span className="font-medium">Gathering today&apos;s news and writing the edition</span>
+            <span className="text-teal-700">
+              {elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`} &middot; usually takes
+              under a minute
+            </span>
           </div>
         )}
 
@@ -524,6 +623,17 @@ export default function App() {
         {error && active && !showAdmin && (
           <div className="shrink-0 border-t border-red-200 bg-red-50 px-6 py-2 text-[12.5px] text-red-800">{error}</div>
         )}
+
+        <ConfirmDialog
+          open={confirmDelete}
+          title="Delete this newsletter?"
+          body={`"${active?.name ?? ''}" and its design history will be removed. Newsletters already sent stay on record. This cannot be undone.`}
+          confirmLabel="Delete"
+          tone="danger"
+          busy={deleting}
+          onConfirm={() => void removeNewsletter()}
+          onCancel={() => setConfirmDelete(false)}
+        />
       </div>
     </div>
   );

@@ -46,12 +46,12 @@ function hhmm(h: string, m: string): string {
 }
 
 function describe(cadence: Cadence, time: string, days: number[], tz: string): string {
-  if (cadence === 'daily') return `Every day at ${time} (${tz}).`;
+  if (cadence === 'daily') return `Every day at ${time}, ${tz} time.`;
   if (cadence === 'weekly') {
     const names = DAYS.filter((d) => days.includes(d.value)).map((d) => d.label);
-    return `Every ${names.length ? names.join(', ') : 'Monday'} at ${time} (${tz}).`;
+    return `Every ${names.length ? names.join(', ') : 'Monday'} at ${time}, ${tz} time.`;
   }
-  return `Custom cron, evaluated in ${tz}.`;
+  return `Custom schedule, in ${tz} time.`;
 }
 
 export function AudiencePanel({ newsletter, onNewsletterChange }: Props) {
@@ -159,7 +159,7 @@ export function AudiencePanel({ newsletter, onNewsletterChange }: Props) {
           <span className="text-[12px] text-stone-500">{recipients.length} on the list</span>
         </div>
         <p className="mt-1 text-[12.5px] leading-relaxed text-stone-500">
-          The external addresses this newsletter goes to. Paste as many as you like, separated by commas, spaces or new
+          Everyone who receives this newsletter. Paste as many addresses as you like, separated by commas, spaces or new
           lines.
         </p>
 
@@ -222,8 +222,7 @@ export function AudiencePanel({ newsletter, onNewsletterChange }: Props) {
           </label>
         </div>
         <p className="mt-1 text-[12.5px] leading-relaxed text-stone-500">
-          How often an edition runs. Set the cadence and turn it on; the timer generates the edition and (once email is
-          connected) sends it to the recipients above.
+          How often this newsletter is prepared. Choose when, then switch it on.
         </p>
 
         <div className="mt-3 space-y-3 rounded-xl border border-stone-200 bg-white p-4">
@@ -239,7 +238,7 @@ export function AudiencePanel({ newsletter, onNewsletterChange }: Props) {
                     : 'border-stone-200 text-stone-600 hover:bg-stone-50',
                 )}
               >
-                {value}
+                {value === 'custom' ? 'Advanced' : value}
               </button>
             ))}
           </div>
@@ -280,14 +279,14 @@ export function AudiencePanel({ newsletter, onNewsletterChange }: Props) {
               </label>
             ) : (
               <label className="flex flex-1 items-center gap-2 text-[12.5px] text-stone-600">
-                Cron
+                Pattern
                 <input
                   value={customCron}
                   onChange={(event) => setCustomCron(event.target.value)}
                   placeholder="0 8 * * 1-5"
                   className="w-44 rounded-md border border-stone-200 px-2 py-1 font-mono text-[12px] text-stone-800 outline-none focus:border-stone-400"
                 />
-                <span className="text-[11px] text-stone-400">5-field cron (min hour dom mon dow)</span>
+                <span className="text-[11px] text-stone-400">Advanced schedule. Use Daily or Weekly unless you need something unusual.</span>
               </label>
             )}
 
@@ -309,8 +308,7 @@ export function AudiencePanel({ newsletter, onNewsletterChange }: Props) {
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 pt-3">
             <div className="text-[12.5px] text-stone-600">
-              {describe(cadence, time, days, timezone)}{' '}
-              <span className="font-mono text-[11.5px] text-stone-400">({cron || 'no cron'})</span>
+              {describe(cadence, time, days, timezone)}
             </div>
             <Button variant="primary" size="sm" onClick={() => void saveSchedule()} loading={savingSchedule}>
               Save schedule

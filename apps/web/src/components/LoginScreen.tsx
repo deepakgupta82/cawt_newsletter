@@ -36,7 +36,7 @@ export function LoginScreen({ onLogin }: Props) {
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
           <h1 className="text-[16px] font-semibold text-white">Sign in</h1>
           <p className="mt-1 text-[12.5px] leading-relaxed text-slate-400">
-            Local development sign-in. In the tenant this becomes Entra ID single sign-on.
+            Enter your name and work email to continue. Your company sign-in will replace this step.
           </p>
 
           <div className="mt-5 space-y-2.5">

@@ -18,15 +18,15 @@ interface Props {
   onNewsletterChange: (next: Newsletter) => void;
 }
 
-const QUICK_EDITS = ['Make items shorter', 'Widen fresh to 7 days', 'Drop the closing', 'Add a Europe section'];
+const QUICK_EDITS = ['Make items shorter', 'Cover the last 7 days', 'Drop the closing summary', 'Add a Europe section'];
 
 // The three strictness settings map to a relevance floor the generator uses to
 // discard weak matches. Named rather than numeric: an editor thinks "let more
 // through", not "0.45".
 const STRICTNESS: Array<[string, number, string]> = [
-  ['Broad', 0.45, 'More items, some loosely related'],
+  ['Broad', 0.45, 'More items, some only loosely related'],
   ['Balanced', 0.6, 'The default'],
-  ['Strict', 0.75, 'Only clear matches'],
+  ['Strict', 0.75, 'Only clearly relevant items'],
 ];
 const WINDOWS: Array<[string, number]> = [
   ['36 hours', 36],
@@ -35,7 +35,7 @@ const WINDOWS: Array<[string, number]> = [
 ];
 
 function kindLabel(kind: ConversationMessage['kind']): string {
-  return { prompt: 'Prompt', sample: 'Sample', refinement: 'Change', note: 'Note', result: 'Understood as' }[kind];
+  return { prompt: 'You asked for', sample: 'Example provided', refinement: 'You asked for', note: 'Note', result: 'Now set to' }[kind];
 }
 
 /** Renders the light markdown the model emits (**bold**) plus paragraph breaks. */
@@ -147,7 +147,7 @@ export function DesignPanel({ newsletter, messages, onRefine, busy, onNewsletter
         },
       });
       onNewsletterChange(updated);
-      setSaved('Saved. The next run uses these settings.');
+      setSaved('Saved. The next edition uses these settings.');
     } catch (error) {
       setSaved(error instanceof Error ? error.message : 'Could not save');
     } finally {
@@ -162,7 +162,7 @@ export function DesignPanel({ newsletter, messages, onRefine, busy, onNewsletter
     <div className="mx-auto grid max-w-6xl gap-5 px-6 py-6 lg:grid-cols-2">
       {/* Conversation */}
       <section className="flex min-h-0 flex-col">
-        <h3 className="mb-2 text-[14px] font-semibold text-stone-900">Design conversation</h3>
+        <h3 className="mb-2 text-[14px] font-semibold text-stone-900">Ask for a change</h3>
 
         <div className="rounded-xl border border-stone-200 bg-white p-4">
           <p className="text-[10px] font-semibold uppercase tracking-[0.09em] text-stone-400">Brief</p>
@@ -193,11 +193,7 @@ export function DesignPanel({ newsletter, messages, onRefine, busy, onNewsletter
                   >
                     {kindLabel(message.kind)}
                   </span>
-                  {message.producedBlueprintVersion !== undefined && (
-                    <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-stone-500 ring-1 ring-inset ring-stone-200">
-                      v{message.producedBlueprintVersion}
-                    </span>
-                  )}
+
                 </div>
                 <RichText text={message.content} />
               </div>
@@ -251,12 +247,11 @@ export function DesignPanel({ newsletter, messages, onRefine, busy, onNewsletter
       {/* Structure and tuning */}
       <section>
         <div className="mb-2 flex items-baseline justify-between gap-3">
-          <h3 className="text-[14px] font-semibold text-stone-900">Structure &amp; tuning</h3>
-          <span className="text-[11.5px] text-stone-400">Blueprint v{newsletter.blueprint.version}</span>
+          <h3 className="text-[14px] font-semibold text-stone-900">What it covers</h3>
         </div>
         <p className="mb-3 text-[12.5px] leading-relaxed text-stone-500">
-          What this newsletter looks for, per section. Change it here when coverage misses things: widen the window,
-          loosen strictness, add keywords, or block a source you never want to see.
+          What this newsletter looks for, section by section. If it missed something, cover a longer period, be less
+          strict, add topics, or block a source you never want to see.
         </p>
 
         <div className="space-y-3">
@@ -271,7 +266,7 @@ export function DesignPanel({ newsletter, messages, onRefine, busy, onNewsletter
               <p className="mt-1 text-[12.5px] leading-relaxed text-stone-600">{group.intent}</p>
 
               <label className="mt-3 block">
-                <span className="text-[11px] font-medium text-stone-500">Search keywords</span>
+                <span className="text-[11px] font-medium text-stone-500">Topics to look for</span>
                 <input
                   value={group.keywords.join(', ')}
                   onChange={(event) =>
@@ -289,7 +284,7 @@ export function DesignPanel({ newsletter, messages, onRefine, busy, onNewsletter
 
               <div className="mt-3 flex flex-wrap gap-4">
                 <div>
-                  <span className="text-[11px] font-medium text-stone-500">Freshness</span>
+                  <span className="text-[11px] font-medium text-stone-500">How recent</span>
                   <div className="mt-1 inline-flex overflow-hidden rounded-lg border border-stone-200">
                     {WINDOWS.map(([label, hours]) => (
                       <button
@@ -330,7 +325,7 @@ export function DesignPanel({ newsletter, messages, onRefine, busy, onNewsletter
                 </div>
 
                 <label className="block">
-                  <span className="text-[11px] font-medium text-stone-500">Max items</span>
+                  <span className="text-[11px] font-medium text-stone-500">Most items</span>
                   <input
                     type="number"
                     min={1}
@@ -384,7 +379,7 @@ export function DesignPanel({ newsletter, messages, onRefine, busy, onNewsletter
           {saved && <span className="text-[12px] text-stone-500">{saved}</span>}
           {dirty && !saved && <span className="text-[12px] text-amber-700">Unsaved changes</span>}
           <Button variant="primary" size="sm" onClick={() => void saveTuning()} loading={saving}>
-            Save tuning
+            Save changes
           </Button>
         </div>
       </section>

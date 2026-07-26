@@ -229,6 +229,22 @@ app.patch(
 );
 
 /**
+ * Removes a newsletter and its design thread. Editions and delivery records are
+ * left in place: they are the record of what was actually sent, and deleting a
+ * definition should not erase history.
+ */
+app.delete(
+  '/api/newsletters/:id',
+  route(async (req, res) => {
+    const id = param(req, 'id');
+    await requireNewsletter(id);
+    await ctx.stores.conversations.clear(id);
+    await ctx.stores.newsletters.delete(id);
+    res.json({ deleted: id });
+  }),
+);
+
+/**
  * Conversational refinement. "Add a Europe section", "make items shorter",
  * "widen to 7 days". The thread persists with the newsletter, so reopening it
  * months later does not mean re-explaining what it is.
