@@ -32,7 +32,7 @@ type Mode = 'read' | 'checks' | 'linkedin';
  */
 export function EditionPanel({ newsletter, edition, onRun, running, onSent, onEditionChange }: Props) {
   const [mode, setMode] = useState<Mode>('read');
-  const [testTo, setTestTo] = useState(newsletter.reviewers[0] ?? 'itsupport@cawt.ai');
+  const [testTo, setTestTo] = useState(newsletter.reviewers?.[0] ?? 'itsupport@cawt.ai');
   const [testResult, setTestResult] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<string | null>(null);
@@ -43,7 +43,8 @@ export function EditionPanel({ newsletter, edition, onRun, running, onSent, onEd
   const [copied, setCopied] = useState(false);
 
   const stories = edition ? collectStories(edition) : [];
-  const flagged = stories.filter((story) => story.warnings.length > 0);
+  const flagged = stories.filter((story) => (story.warnings?.length ?? 0) > 0);
+  const editionWarnings = edition?.warnings ?? [];
 
   // A fresh edition invalidates anything built from the previous one.
   useEffect(() => {
@@ -216,7 +217,7 @@ export function EditionPanel({ newsletter, edition, onRun, running, onSent, onEd
               {[
                 ['Stories', stories.length],
                 ['Flagged', flagged.length],
-                ['Sources cited', stories.reduce((sum, story) => sum + story.sources.length, 0)],
+                ['Sources cited', stories.reduce((sum, story) => sum + (story.sources?.length ?? 0), 0)],
               ].map(([label, value]) => (
                 <div key={String(label)} className="rounded-xl border border-stone-200 bg-white px-4 py-3">
                   <p className="text-[11px] uppercase tracking-wide text-stone-400">{label}</p>
@@ -225,7 +226,7 @@ export function EditionPanel({ newsletter, edition, onRun, running, onSent, onEd
               ))}
             </div>
 
-            {edition.warnings.map((warning) => (
+            {editionWarnings.map((warning) => (
               <div key={warning} className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">
                 <p className="text-[12.5px] leading-relaxed text-amber-900">{warning}</p>
               </div>
@@ -242,14 +243,14 @@ export function EditionPanel({ newsletter, edition, onRun, running, onSent, onEd
                 <div key={story.id} className="rounded-xl border border-amber-200 bg-white p-4">
                   <p className="text-[14px] font-medium text-stone-900">{story.headline}</p>
                   <ul className="mt-2 space-y-1">
-                    {story.warnings.map((warning) => (
+                    {(story.warnings ?? []).map((warning) => (
                       <li key={warning} className="text-[12.5px] leading-relaxed text-amber-800">
                         {warning}
                       </li>
                     ))}
                   </ul>
                   <div className="mt-2.5 flex flex-wrap gap-2">
-                    {story.sources.map((source) => (
+                    {(story.sources ?? []).map((source) => (
                       <a
                         key={source.url}
                         href={source.url}

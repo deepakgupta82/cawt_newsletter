@@ -10,6 +10,7 @@ import { AudiencePanel } from './components/AudiencePanel';
 import { SentPanel } from './components/SentPanel';
 import { AdminPanel } from './components/AdminPanel';
 import { LoginScreen, type Session } from './components/LoginScreen';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Button, cx } from './components/ui';
 
 const SESSION_KEY = 'cawt.session';
@@ -106,10 +107,16 @@ export default function App() {
     setActive(newsletter);
     setMessages(thread);
     // The most recent edition is what an editor almost always wants in hand.
+    // Falls back to the edition list so a summary that is unavailable leaves the
+    // Edition tab populated rather than looking empty.
     void api
       .summary(id)
       .then((stats) => setEdition(stats.latestEdition))
-      .catch(() => undefined);
+      .catch(async () => {
+        const editions = await api.editions(id).catch(() => [] as Edition[]);
+        const newest = [...editions].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+        setEdition(newest ?? null);
+      });
   }, []);
 
   // Deep link from the review email's Edit button: /?newsletter=<id> opens it.
@@ -441,9 +448,9 @@ export default function App() {
                   )}
                 >
                   {label}
-                  {value === 'edition' && edition && edition.warnings.length > 0 && (
+                  {value === 'edition' && (edition?.warnings?.length ?? 0) > 0 && (
                     <span className="ml-1.5 rounded-full border border-amber-200 bg-amber-50 px-1.5 text-[10.5px] font-bold text-amber-700">
-                      {edition.warnings.length}
+                      {edition!.warnings.length}
                     </span>
                   )}
                 </button>
@@ -460,6 +467,7 @@ export default function App() {
         )}
 
         <main className="min-h-0 flex-1 overflow-y-auto bg-canvas">
+          <ErrorBoundary resetKey={`${showAdmin ? 'admin' : (active?.id ?? 'none')}:${tab}`}>
           {showAdmin ? (
             <AdminPanel onOpenNewsletter={(id) => void open(id)} />
           ) : startMode || !active ? (
@@ -510,6 +518,7 @@ export default function App() {
               onGotoEdition={() => setTab('edition')}
             />
           )}
+          </ErrorBoundary>
         </main>
 
         {error && active && !showAdmin && (

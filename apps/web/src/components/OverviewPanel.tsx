@@ -128,9 +128,9 @@ export function OverviewPanel({ newsletter, refreshKey, onOpenEdition, onGoto, o
                   {state!.label}
                 </span>
                 <span className="truncate text-[12.5px] text-stone-500">{formatWhen(latest.createdAt)}</span>
-                {latest.warnings.length > 0 && (
+                {(latest.warnings?.length ?? 0) > 0 && (
                   <span className="ml-auto text-[12px] font-medium text-amber-700">
-                    {latest.warnings.length} item{latest.warnings.length === 1 ? '' : 's'} to check
+                    {latest.warnings!.length} item{latest.warnings!.length === 1 ? '' : 's'} to check
                   </span>
                 )}
               </div>
