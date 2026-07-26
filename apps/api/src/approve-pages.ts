@@ -43,6 +43,20 @@ export function confirmPage(opts: {
   );
 }
 
+export function unsubscribeConfirmPage(opts: { newsletterName: string; email: string; token: string }): string {
+  const { newsletterName, email, token } = opts;
+  return SHELL(
+    'Unsubscribe',
+    `<div class="sub">${esc(newsletterName)}</div>
+     <h1>Stop receiving this newsletter?</h1>
+     <p>${esc(email)} will be removed from the list for "${esc(newsletterName)}". You can be added back at any time by whoever manages it.</p>
+     <form method="POST" action="/api/unsubscribe">
+       <input type="hidden" name="token" value="${esc(token)}">
+       <button class="primary" type="submit">Yes, unsubscribe me</button>
+     </form>`,
+  );
+}
+
 export function resultPage(title: string, message: string, editUrl?: string): string {
   return SHELL(
     title,

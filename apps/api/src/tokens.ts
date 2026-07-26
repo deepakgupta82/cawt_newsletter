@@ -36,13 +36,40 @@ function sign(payload: string): string {
 
 /** A token that authorises publishing exactly this edition until it expires. */
 export function signApproval(editionId: string, ttlMs = DEFAULT_TTL_MS): string {
-  const body = { e: editionId, exp: Date.now() + ttlMs };
+  const body = { p: 'approve', e: editionId, exp: Date.now() + ttlMs };
   const payload = b64url(JSON.stringify(body));
   return `${payload}.${sign(payload)}`;
 }
 
-/** Returns the edition id if the token is valid and unexpired, otherwise null. */
+/** Returns the edition id if the token is valid, unexpired, and an approval token. */
 export function verifyApproval(token: string): { editionId: string } | null {
+  const body = verify(token);
+  if (!body || body['p'] !== 'approve' || typeof body['e'] !== 'string') return null;
+  return { editionId: body['e'] };
+}
+
+// Five years: an unsubscribe link must keep working for as long as the
+// recipient might still be receiving mail, which for a standing distribution
+// list is effectively indefinite. Unlike Approve, this token has no side
+// effect on its own - a stolen or reused link only ever removes one address
+// from one list, so a long lifetime is not a meaningful risk.
+const UNSUBSCRIBE_TTL_MS = 5 * 365 * 24 * 60 * 60 * 1000;
+
+/** A token that authorises removing exactly this recipient from this newsletter. */
+export function signUnsubscribe(recipientId: string, newsletterId: string): string {
+  const body = { p: 'unsub', r: recipientId, n: newsletterId, exp: Date.now() + UNSUBSCRIBE_TTL_MS };
+  const payload = b64url(JSON.stringify(body));
+  return `${payload}.${sign(payload)}`;
+}
+
+/** Returns the recipient/newsletter pair if the token is valid and an unsubscribe token. */
+export function verifyUnsubscribe(token: string): { recipientId: string; newsletterId: string } | null {
+  const body = verify(token);
+  if (!body || body['p'] !== 'unsub' || typeof body['r'] !== 'string' || typeof body['n'] !== 'string') return null;
+  return { recipientId: body['r'], newsletterId: body['n'] };
+}
+
+function verify(token: string): Record<string, unknown> | null {
   const parts = token.split('.');
   if (parts.length !== 2) return null;
   const [payload, mac] = parts as [string, string];
@@ -53,9 +80,9 @@ export function verifyApproval(token: string): { editionId: string } | null {
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
 
   try {
-    const body = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { e?: string; exp?: number };
-    if (!body.e || typeof body.exp !== 'number' || body.exp < Date.now()) return null;
-    return { editionId: body.e };
+    const body = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<string, unknown>;
+    if (typeof body['exp'] !== 'number' || body['exp'] < Date.now()) return null;
+    return body;
   } catch {
     return null;
   }

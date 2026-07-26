@@ -1,6 +1,7 @@
 import { deliverySchema, newId, nowIso, type Edition, type Newsletter, type Recipient } from '@cawt/domain';
 import { renderEditionHtml, renderEditionText } from '@cawt/render';
-import { DEFAULT_BRAND, type AppContext } from './context.js';
+import { appBaseUrl, DEFAULT_BRAND, type AppContext } from './context.js';
+import { signUnsubscribe } from './tokens.js';
 
 export interface PublishOutcome {
   status: 'sent' | 'already_sent' | 'no_recipients' | 'not_found';
@@ -48,18 +49,22 @@ export async function publishEdition(
   }
 
   const brand = (await ctx.stores.brands.get(newsletter.brandId)) ?? DEFAULT_BRAND;
-  const unsubscribeUrl = `mailto:${brand.contactAddress}?subject=unsubscribe`;
-  const html = renderEditionHtml(edition, { brand, unsubscribeUrl });
-  const text = renderEditionText(edition, { brand, unsubscribeUrl });
 
-  // One snapshot of the exact HTML per edition; every delivery points at it so
-  // the Sent view can reopen precisely what went out.
+  // One snapshot of the exact HTML per edition, for the internal Sent viewer.
+  // Its unsubscribe link is a generic placeholder - nobody unsubscribes from a
+  // read-only archive copy - while each recipient's actual email below carries
+  // their own working, personalised link.
+  const snapshotHtml = renderEditionHtml(edition, {
+    brand,
+    unsubscribeUrl: `mailto:${brand.contactAddress}?subject=unsubscribe`,
+  });
   const snapshotPath = `sent/${edition.id}.html`;
-  await ctx.stores.blobs.put(snapshotPath, html, 'text/html');
+  await ctx.stores.blobs.put(snapshotPath, snapshotHtml, 'text/html');
 
   let sent = 0;
   let failed = 0;
   for (const recipient of recipients) {
+    const unsubscribeUrl = `${appBaseUrl()}/api/unsubscribe?token=${signUnsubscribe(recipient.id, newsletter.id)}`;
     const base = {
       id: newId('dlv'),
       newsletterId: newsletter.id,
@@ -81,8 +86,8 @@ export async function publishEdition(
         fromName: brand.name,
         replyTo: brand.contactAddress,
         subject: edition.subject,
-        html,
-        text,
+        html: renderEditionHtml(edition, { brand, unsubscribeUrl }),
+        text: renderEditionText(edition, { brand, unsubscribeUrl }),
         headers: { 'List-Unsubscribe': `<${unsubscribeUrl}>` },
       });
       sent += 1;

@@ -25,8 +25,8 @@ import { appBaseUrl, createContext, DEFAULT_BRAND, loadEnv, type AppContext } fr
 import { normaliseSample } from './sample.js';
 import { startScheduler } from './scheduler.js';
 import { publishEdition } from './publish.js';
-import { verifyApproval } from './tokens.js';
-import { confirmPage, resultPage } from './approve-pages.js';
+import { verifyApproval, verifyUnsubscribe } from './tokens.js';
+import { confirmPage, resultPage, unsubscribeConfirmPage } from './approve-pages.js';
 
 await loadEnv();
 const ctx: AppContext = await createContext();
@@ -735,6 +735,65 @@ app.post(
       .send(
         resultPage('Sent', `Published to ${outcome.sent} recipient${outcome.sent === 1 ? '' : 's'}${failedNote}.`, editUrl),
       );
+  }),
+);
+
+/**
+ * The unsubscribe link in every real send. GET only shows a confirm page and
+ * has no side effect, because mail-security scanners (Safe Links, Proofpoint
+ * and similar) pre-fetch every link in an inbound email; if a GET removed the
+ * recipient, their own security software would silently unsubscribe them
+ * before they ever opened the message. The confirm form's POST is what
+ * actually removes them.
+ */
+app.get(
+  '/api/unsubscribe',
+  route(async (req, res) => {
+    const token = String(req.query['token'] ?? '');
+    const verified = verifyUnsubscribe(token);
+    if (!verified) {
+      res.status(400).type('html').send(resultPage('Link expired', 'This unsubscribe link is invalid or has expired.'));
+      return;
+    }
+    const [recipient, newsletter] = await Promise.all([
+      ctx.stores.recipients.get(verified.recipientId),
+      ctx.stores.newsletters.get(verified.newsletterId),
+    ]);
+    if (!recipient || !newsletter) {
+      res.status(404).type('html').send(resultPage('Not found', 'That subscription no longer exists.'));
+      return;
+    }
+    if (recipient.status === 'unsubscribed') {
+      res.type('html').send(resultPage('Already unsubscribed', `${recipient.email} is not receiving "${newsletter.name}".`));
+      return;
+    }
+    res
+      .type('html')
+      .send(unsubscribeConfirmPage({ newsletterName: newsletter.name, email: recipient.email, token }));
+  }),
+);
+
+app.post(
+  '/api/unsubscribe',
+  route(async (req, res) => {
+    const token = String((req.body as { token?: string })?.token ?? req.query['token'] ?? '');
+    const verified = verifyUnsubscribe(token);
+    if (!verified) {
+      res.status(400).type('html').send(resultPage('Link expired', 'This unsubscribe link is invalid or has expired.'));
+      return;
+    }
+    const recipient = await ctx.stores.recipients.get(verified.recipientId);
+    const newsletter = await ctx.stores.newsletters.get(verified.newsletterId);
+    if (!recipient || !newsletter) {
+      res.status(404).type('html').send(resultPage('Not found', 'That subscription no longer exists.'));
+      return;
+    }
+    await ctx.stores.recipients.save(
+      recipientSchema.parse({ ...recipient, status: 'unsubscribed', unsubscribedAt: nowIso() }),
+    );
+    res
+      .type('html')
+      .send(resultPage('Unsubscribed', `${recipient.email} has been removed from "${newsletter.name}". You will not receive further editions.`));
   }),
 );
 
